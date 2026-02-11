@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Section 3.1-style density sweep for pure-Fibonacci rd-hashd.
-#
-# Notebook-compatible output layout (../sched-ext/notebooks/ftrace.ipynb):
-#   LOG_ROOT/<RUN_ID>/
-#     params.txt
-#     d<density>/
-#       trace.txt
-#       reports/*.json
-
 DENSITIES="${DENSITIES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19}"
 REPEATS="${REPEATS:-1}"
 WARMUP_SEC="${WARMUP_SEC:-10}"
@@ -21,7 +12,6 @@ REPO_ROOT="${REPO_ROOT:-$PWD}"
 RDH_BIN="${RDH_BIN:-$REPO_ROOT/target/release/rd-hashd}"
 PARAMS_JSON="${PARAMS_JSON:-$REPO_ROOT/rdh/params.json}"
 
-# Keep these names to stay aligned with the existing notebook schema.
 THREADS="${THREADS:-1}"
 WORK_US="${WORK_US:-0}"
 SLEEP_US="${SLEEP_US:-0}"
@@ -41,7 +31,7 @@ if [[ -z "$TRACING_DIR" ]]; then
 fi
 
 require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || {1
+  command -v "$1" >/dev/null 2>&1 || {
     echo "ERROR: missing command '$1'" >&2
     exit 1
   }
