@@ -6,10 +6,8 @@ set -euo pipefail
 # Notebook-compatible output layout (../sched-ext/notebooks/ftrace.ipynb):
 #   LOG_ROOT/<RUN_ID>/
 #     params.txt
-#     results.csv
 #     d<density>/
 #       trace.txt
-#       summary.txt
 #       reports/*.json
 
 DENSITIES="${DENSITIES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19}"
@@ -43,7 +41,7 @@ if [[ -z "$TRACING_DIR" ]]; then
 fi
 
 require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || {
+  command -v "$1" >/dev/null 2>&1 || {1
     echo "ERROR: missing command '$1'" >&2
     exit 1
   }
@@ -73,42 +71,6 @@ cleanup_tracing() {
 
 trap 'cleanup_units; cleanup_tracing' EXIT INT TERM
 
-extract_json() {
-  awk '
-    BEGIN { started=0 }
-    /^[[:space:]]*{/ { started=1 }
-    started { print }
-  ' "$1"
-}
-
-sum_rps_reports() {
-  local report_glob="$1"
-  python3 - "$report_glob" <<'PY'
-import glob, json, sys
-
-def load_json(path):
-    started = False
-    lines = []
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            if not started and line.lstrip().startswith("{"):
-                started = True
-            if started:
-                lines.append(line)
-    if not lines:
-        return {}
-    try:
-        return json.loads("".join(lines))
-    except Exception:
-        return {}
-
-total = 0.0
-for p in sorted(glob.glob(sys.argv[1])):
-    total += float(load_json(p).get("rps", 0.0) or 0.0)
-print(total)
-PY
-}
-
 start_ftrace() {
   sudo sh -c "
     cd '$TRACING_DIR' || exit 1
@@ -133,36 +95,6 @@ stop_ftrace_dump() {
     echo 0 > tracing_on
     cat trace
   " > "$outfile"
-}
-
-summarize_trace() {
-  local infile="$1"
-  awk '
-  /\} \/\* schedule \*\// {
-    line = $0
-    # function_graph prints duration in the 2nd "|" field, e.g.:
-    #   | # 2938.648 us |  } /* schedule */
-    #   | ! 168.741 us  |  } /* schedule */
-    #   | * 25174.75 us |  } /* schedule */
-    nf = split(line, parts, /\|/)
-    if (nf >= 2) {
-      mid = parts[2]
-      # Extract first "<number> us" token regardless of leading marker.
-      if (match(mid, /[0-9]+([.][0-9]+)?[[:space:]]+us/)) {
-        dur = substr(mid, RSTART, RLENGTH)
-        sub(/[[:space:]]+us$/, "", dur)
-        sum += dur + 0.0
-        n++
-      }
-    }
-  }
-  END {
-    if (n == 0)
-      print "calls=0 total_us=0 avg_us=0"
-    else
-      printf("calls=%d total_us=%.1f avg_us=%.3f\n", n, sum, sum/n)
-  }
-  ' "$infile"
 }
 
 main() {
@@ -215,11 +147,6 @@ SLICE=$SLICE
 NPROC=$H
 PARAMS
 
-  CSV="$OUT_DIR/results.csv"
-  EXTRA_CSV="$OUT_DIR/results_extra.csv"
-  echo "density,calls,total_us,avg_us,trace_sec,warmup_sec,threads,work_us,sleep_us" > "$CSV"
-  echo "density,total_rps,instances" > "$EXTRA_CSV"
-
   local density
   for density in $DENSITIES; do
     local N DDIR
@@ -257,20 +184,6 @@ PARAMS
     echo "[ftrace] stopping + dumping..."
     stop_ftrace_dump "$DDIR/trace.txt"
 
-    grep -E '\} /\* schedule \*/' "$DDIR/trace.txt" > "$DDIR/schedule_events.txt" || true
-
-    SUM_LINE="$(summarize_trace "$DDIR/trace.txt")"
-    echo "$SUM_LINE" | tee "$DDIR/summary.txt"
-
-    calls="$(echo "$SUM_LINE" | sed -n 's/.*calls=\([0-9]*\).*/\1/p')"
-    total_us="$(echo "$SUM_LINE" | sed -n 's/.*total_us=\([0-9.]*\).*/\1/p')"
-    avg_us="$(echo "$SUM_LINE" | sed -n 's/.*avg_us=\([0-9.]*\).*/\1/p')"
-
-    total_rps="$(sum_rps_reports "$DDIR/reports/report-*.json")"
-
-    echo "${density},${calls},${total_us},${avg_us},${TRACE_SEC},${WARMUP_SEC},${THREADS},${WORK_US},${SLEEP_US}" >> "$CSV"
-    echo "${density},${total_rps},${N}" >> "$EXTRA_CSV"
-
     cleanup_units
     RUN_TAG=""
     sleep "$COOLDOWN_SEC"
@@ -278,7 +191,6 @@ PARAMS
   done
 
   echo "Done."
-  echo "Results CSV: $CSV"
 }
 
 main "$@"
