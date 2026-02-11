@@ -1,0 +1,65 @@
+//
+// rd-hashd runtime report
+//
+//  timestamp: The time this report was created at
+//  phase: The current phase
+//  rotational: Are testfiles and/or swap on hard disk drives?
+//  rotational_testfiles: Are testfiles on hard disk drives?
+//  rotational_swap: Is swap on hard disk drives?
+//  testfiles_progress: Testfiles preparation progress, 1.0 indicates completion
+//  params_modified: Modified timestamp of the loaded params file
+//  mem_probe_frac: Memory frac benchmark is currently probing
+//  mem_probe_at: The timestamp this memory probing started at
+//  rps: Request per second in the last control period
+//  concurrency: Current number of active worker threads
+//  concurrency_max: Current concurrency max from latency target
+//  file_addr_frac: Current file footprint fraction
+//  anon_addr_frac: Current anon footprint fraction
+//  nr_in_flight: The number of requests in flight
+//  nr_done: Total number of hashes calculated
+//  nr_workers: Number of worker threads
+//  nr_idle_workers: Number of idle workers
+//  lat.p*: Latency percentiles
+//  lat.ctl: Latency percentile used for rps control (params.lat_target_pct)
+//
+{
+  "timestamp": "2026-02-11T15:41:31.860371305Z",
+  "phase": "Prep",
+  "rotational": false,
+  "rotational_testfiles": false,
+  "rotational_swap": false,
+  "testfiles_progress": 1.0,
+  "params_modified": "2026-02-11T15:41:31.851822725Z",
+  "mem_probe_size": 0,
+  "mem_probe_at": "1970-01-01T01:00:00+01:00",
+  "rps": 0.0,
+  "concurrency": 0.0,
+  "concurrency_max": 0.0,
+  "file_addr_frac": 0.0,
+  "anon_addr_frac": 0.0,
+  "nr_in_flight": 0,
+  "nr_done": 0,
+  "nr_workers": 0,
+  "nr_idle_workers": 0,
+  "lat": {
+    "min": 0.0,
+    "p01": 0.0,
+    "p05": 0.0,
+    "p10": 0.0,
+    "p16": 0.0,
+    "p50": 0.0,
+    "p84": 0.0,
+    "p90": 0.0,
+    "p95": 0.0,
+    "p99": 0.0,
+    "p99_9": 0.0,
+    "p99_99": 0.0,
+    "p99_999": 0.0,
+    "max": 0.0,
+    "ctl": 0.0
+  },
+  "file_size": 0,
+  "file_dist": [],
+  "anon_size": 0,
+  "anon_dist": []
+}

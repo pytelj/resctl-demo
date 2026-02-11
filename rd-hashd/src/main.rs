@@ -169,13 +169,10 @@ fn main() {
 
     debug!("arguments: {:#?}", args);
 
-    let tf_path = match args.testfiles.as_ref() {
-        Some(p) => p,
-        None => {
-            error!("--testfiles must be specified");
-            panic!();
-        }
-    };
+    let tf_path = args
+        .testfiles
+        .as_deref()
+        .unwrap_or("/tmp/rd-hashd-fib-unused");
 
     debug_assert!({
         warn!("Built with debug profile, may be too slow for nominal behaviors");
@@ -194,39 +191,14 @@ fn main() {
         params.file_frac = args.file_max_frac;
     }
 
-    //
-    // Create the testfiles root dir and determine whether we're on rotational
-    // devices.
-    //
-    let mut tf = TestFiles::new(
+    // Keep TestFiles around for API compatibility with existing bench code and
+    // callers, but runtime workload generation is pure CPU Fibonacci.
+    let tf = TestFiles::new(
         tf_path,
         TESTFILE_UNIT_SIZE,
         args.file_max_size(),
         args.compressibility,
     );
-    tf.prep_base_dir().unwrap();
-
-    ROTATIONAL_TESTFILES.store(storage_info::is_path_rotational(tf_path), Ordering::Relaxed);
-
-    let rot_tf = ROTATIONAL_TESTFILES.load(Ordering::Relaxed);
-    let rot_swap = *ROTATIONAL_SWAP;
-
-    if rot_tf || rot_swap {
-        let mut msg = format!(
-            "Hard disk detected (testfiles={}, swap={})",
-            rot_tf, rot_swap
-        );
-        if let Some(false) = args.rotational {
-            msg += " but rotational mode is inhibited";
-        } else {
-            msg += ", enabling rotational mode";
-            ROTATIONAL.store(true, Ordering::Relaxed);
-        }
-        info!("{}", &msg);
-    } else if let Some(true) = args.rotational {
-        info!("No hard disk detected but forcing rotational mode");
-        ROTATIONAL.store(true, Ordering::Relaxed);
-    }
 
     //
     // Init stat file and prepare testfiles.
@@ -235,41 +207,13 @@ fn main() {
     report_file.data.params_modified = DateTime::from(params_file.loaded_mod);
     report_tick(&mut report_file, false);
 
-    if args.clear_testfiles {
-        info!("Clearing {}", tf_path);
-        tf.clear().unwrap();
-    }
-
-    if args.prepare_testfiles {
-        let greet = format!(
-            "Populating {} with {} {}M files ({:.2}G)",
-            tf_path,
-            tf.nr_files,
-            to_mb(TESTFILE_UNIT_SIZE),
-            to_gb(args.file_max_size())
+    if args.clear_testfiles || args.prepare_testfiles || args.keep_cache {
+        warn!(
+            "Testfile-related options are ignored: rd-hashd now runs pure Fibonacci CPU workload"
         );
-
-        // Lay out the testfiles while reporting progress.
-        let mut tfbar = TestFilesProgressBar::new(
-            args.file_max_size(),
-            &greet,
-            "Preparing testfiles",
-            args.verbosity > 1,
-        );
-        tf.setup(|pos| {
-            tfbar.progress(pos);
-            report_file.data.testfiles_progress = pos as f64 / args.file_max_size() as f64;
-            report_tick(&mut report_file, true);
-        })
-        .unwrap();
-        report_file.data.testfiles_progress = 1.0;
-        report_tick(&mut report_file, false);
-
-        if !args.keep_cache {
-            info!("Dropping page cache for testfiles");
-            tf.drop_cache();
-        }
     }
+    report_file.data.testfiles_progress = 1.0;
+    report_tick(&mut report_file, false);
 
     if args.prepare_and_exit {
         return;
@@ -279,24 +223,22 @@ fn main() {
     // Benchmark and exit if requested.
     //
     if args.bench_cpu || args.bench_mem {
-        let mut bench = bench::Bench::new(args_file, params_file, report_file);
-        bench.run();
-        exit(0);
+        error!(
+            "Benchmark mode is not supported in pure Fibonacci workload mode"
+        );
+        exit(1);
     }
 
     //
     // Start the hasher.
     //
-    let size = args.size as f64 * params.mem_frac;
-    let fsize = (size * params.file_frac).min(size);
-    let asize = size - fsize;
     info!(
-        "Starting hasher (maxcon={} lat={:.1}ms rps={} file={:.2}G anon={:.2}G)",
+        "Starting Fibonacci hasher (maxcon={} lat={:.1}ms rps={} work-mean={} cpu_ratio={:.2})",
         params.concurrency_max,
         params.lat_target * TO_MSEC,
         params.rps_target,
-        to_gb(fsize),
-        to_gb(asize)
+        params.file_size_mean,
+        params.cpu_ratio
     );
 
     let mut dispatch = hasher::Dispatch::new(
@@ -304,7 +246,7 @@ fn main() {
         tf,
         &params,
         args.compressibility,
-        create_logger(args, &params),
+        None,
     );
 
     //

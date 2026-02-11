@@ -1,0 +1,12 @@
+{
+  "testfiles": null,
+  "size": 15924445184,
+  "file_max_frac": 0.25,
+  "compressibility": 0.0,
+  "params": "./rdh/params.json",
+  "report": "./rdh/report.json",
+  "log_dir": null,
+  "log_size": 1990555648,
+  "interval": 10,
+  "rotational": null
+}
