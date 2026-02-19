@@ -52,6 +52,7 @@ cleanup_tracing() {
     sudo sh -c "
       cd '$TRACING_DIR' || exit 0
       echo 0 > tracing_on 2>/dev/null || true
+      echo 0 > function_profile_enabled 2>/dev/null || true
       echo nop > current_tracer 2>/dev/null || true
       : > set_graph_function 2>/dev/null || true
       : > set_ftrace_filter 2>/dev/null || true
@@ -65,28 +66,42 @@ start_ftrace() {
   sudo sh -c "
     cd '$TRACING_DIR' || exit 1
     echo 0 > tracing_on
+    echo 0 > function_profile_enabled
     echo nop > current_tracer
-    : > trace
-    echo mono > trace_clock
+    : > set_ftrace_filter
 
-    echo function_graph > current_tracer
-    echo schedule > set_graph_function
-
-    echo 1 > options/funcgraph-abstime
-    echo 1 > options/funcgraph-duration
-    echo 1 > options/funcgraph-proc
-
+    echo schedule > set_ftrace_filter
+    echo function > current_tracer
+    echo 1 > function_profile_enabled
     echo 1 > tracing_on
   "
 }
 
 stop_ftrace_dump() {
-  local outfile="$1"
+  local outdir="$1"
+  local cpu_count="$2"
+
+  mkdir -p "$outdir/trace_stat"
+
   sudo sh -c "
     cd '$TRACING_DIR' || exit 1
     echo 0 > tracing_on
-    cat trace
-  " > "$outfile"
+    echo 0 > function_profile_enabled
+
+    for i in \$(seq 0 $((cpu_count - 1))); do
+      f=trace_stat/function\$i
+      [ -f \"\$f\" ] && cat \"\$f\"
+    done
+  " > "$outdir/trace_stat.txt"
+
+  # per-CPU stats
+  sudo sh -c "
+    cd '$TRACING_DIR' || exit 1
+    for i in \$(seq 0 $((cpu_count - 1))); do
+      f=trace_stat/function\$i
+      [ -f \"\$f\" ] && cp \"\$f\" \"$outdir/trace_stat/function\$i\"
+    done
+  "
 }
 
 main() {
@@ -170,11 +185,28 @@ PARAMS
 
     sleep "$WARMUP_SEC"
 
+    local trace_start_epoch trace_end_epoch trace_actual_sec
+    local trace_start_utc trace_end_utc
+
+    trace_start_epoch="$(date +%s.%N)"
+    trace_start_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
     echo "[ftrace] starting..."
     start_ftrace
     sleep "$TRACE_SEC"
     echo "[ftrace] stopping + dumping..."
-    stop_ftrace_dump "$DDIR/trace.txt"
+    stop_ftrace_dump "$DDIR" "$H"
+    trace_end_epoch="$(date +%s.%N)"
+    trace_end_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+    trace_actual_sec="$(awk -v s="$trace_start_epoch" -v e="$trace_end_epoch" 'BEGIN{printf "%.6f", e-s}')"
+
+    cat > "$DDIR/trace_window.txt" <<TRACE_WINDOW
+TRACE_CONFIG_SEC=$TRACE_SEC
+TRACE_START_EPOCH=$trace_start_epoch
+TRACE_END_EPOCH=$trace_end_epoch
+TRACE_ACTUAL_SEC=$trace_actual_sec
+TRACE_START_UTC=$trace_start_utc
+TRACE_END_UTC=$trace_end_utc
+TRACE_WINDOW
 
     cleanup_units
     RUN_TAG=""
