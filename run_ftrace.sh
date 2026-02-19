@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DENSITIES="${DENSITIES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19}"
+DENSITIES="${DENSITIES:-1 5 10 15 20}"
 REPEATS="${REPEATS:-1}"
-WARMUP_SEC="${WARMUP_SEC:-10}"
-TRACE_SEC="${TRACE_SEC:-30}"
+WARMUP_SEC="${WARMUP_SEC:-5}"
+TRACE_SEC="${TRACE_SEC:-15}"
 COOLDOWN_SEC="${COOLDOWN_SEC:-5}"
 SLICE="${SLICE:-faas.slice}"
 
@@ -67,10 +67,12 @@ start_ftrace() {
     echo 0 > tracing_on
     echo nop > current_tracer
     : > trace
+    echo mono > trace_clock
 
     echo function_graph > current_tracer
     echo schedule > set_graph_function
 
+    echo 1 > options/funcgraph-abstime
     echo 1 > options/funcgraph-duration
     echo 1 > options/funcgraph-proc
 
