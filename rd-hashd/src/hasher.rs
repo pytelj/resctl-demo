@@ -32,7 +32,6 @@ fn fib_burn(iters: u64, cpu_ratio: f64) -> u64 {
     b
 }
 
-/// Compatibility hasher used by legacy benchmark code paths.
 pub struct Hasher {
     buf: Vec<u8>,
     cpu_ratio: f64,
@@ -256,7 +255,7 @@ impl DispatchThread {
                 let started_at = Instant::now();
 
                 if fake_cpu {
-                    // Keep fake mode for compatibility with existing params.
+                    // Just for compatibility with existing params.
                     sleep(Duration::from_secs_f64((work_iters as f64) * 1e-9));
                 } else {
                     let fib = fib_burn(work_iters, cpu_ratio);
