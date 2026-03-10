@@ -5,7 +5,7 @@ DENSITIES="${DENSITIES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}"
 REPEATS="${REPEATS:-1}"
 WARMUP_SEC="${WARMUP_SEC:-10}"
 TRACE_SEC="${TRACE_SEC:-30}"
-COOLDOWN_SEC="${COOLDOWN_SEC:-5}"
+COOLDOWN_SEC="${COOLDOWN_SEC:-10}"
 SLICE="${SLICE:-faas.slice}"
 
 REPO_ROOT="${REPO_ROOT:-$PWD}"
@@ -145,6 +145,12 @@ PARAMS_JSON=$PARAMS_JSON
 SLICE=$SLICE
 NPROC=$H
 PARAMS
+
+  {
+    echo
+    echo "==== rdh/params.json ===="
+    cat "$PARAMS_JSON"
+  } >> "$OUT_DIR/params.txt"
 
   local density
   for density in $DENSITIES; do
