@@ -12,10 +12,6 @@ REPO_ROOT="${REPO_ROOT:-$PWD}"
 RDH_BIN="${RDH_BIN:-$REPO_ROOT/target/release/rd-hashd}"
 PARAMS_JSON="${PARAMS_JSON:-$REPO_ROOT/rdh/params.json}"
 
-THREADS="${THREADS:-1}"
-WORK_US="${WORK_US:-0}"
-SLEEP_US="${SLEEP_US:-0}"
-
 LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/../sched-ext/logs/ftrace_resctl}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 OUT_DIR="${LOG_ROOT}/${RUN_ID}"
@@ -129,7 +125,6 @@ main() {
 
   echo "Logs: $OUT_DIR"
   echo "Densities: $DENSITIES"
-  echo "Params: threads=$THREADS, work_us=$WORK_US, sleep_us=$SLEEP_US"
   echo "Warmup=${WARMUP_SEC}s, Trace=${TRACE_SEC}s"
   echo
 
@@ -139,9 +134,6 @@ HOSTNAME=$(hostname)
 DATE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 KERNEL=$(uname -r)
 DENSITIES=$DENSITIES
-THREADS=$THREADS
-WORK_US=$WORK_US
-SLEEP_US=$SLEEP_US
 WARMUP_SEC=$WARMUP_SEC
 TRACE_SEC=$TRACE_SEC
 COOLDOWN_SEC=$COOLDOWN_SEC
