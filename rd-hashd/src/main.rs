@@ -246,7 +246,7 @@ fn main() {
         tf,
         &params,
         args.compressibility,
-        None,
+        create_logger(args, params),
     );
 
     //
