@@ -1,6 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
 use crossbeam::channel::{self, select, Receiver, Sender};
+use csv::Reader;
 use log::{debug, warn};
 use pid::Pid;
 use quantiles::ckms::CKMS;
@@ -8,6 +9,7 @@ use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Normal};
 use sha1_smol::{Digest, Sha1};
+use std::fs::File;
 use std::path::Path;
 use std::thread::{sleep, spawn, JoinHandle};
 use std::time::{Duration, Instant};
@@ -122,6 +124,41 @@ struct WorkCompletion {
     started_at: Instant,
 }
 
+struct TraceReader {
+    launches: Vec<u32>,
+}
+
+impl TraceReader {
+    fn new(trace_path: &str) -> Result<Self> {
+        let file = File::open(trace_path)?;
+        let mut rdr = Reader::from_reader(file);
+        let mut launches = Vec::new();
+
+        for record in rdr.records() {
+            let record = record?;
+            let launch = record
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("missing third CSV column in {}", trace_path))?
+                .parse::<u32>()?;
+            launches.push(launch);
+        }
+
+        if launches.is_empty() {
+            anyhow::bail!("trace file {} contained no samples", trace_path);
+        }
+
+        Ok(Self { launches })
+    }
+
+    fn len(&self) -> usize {
+        self.launches.len()
+    }
+
+    fn launches_at(&self, idx: usize) -> u32 {
+        self.launches[idx % self.launches.len()]
+    }
+}
+
 /// Dispatch thread which is started when Dispatch is created and
 /// keeps scheduling workers according to params.
 struct DispatchThread {
@@ -129,6 +166,9 @@ struct DispatchThread {
     params_at: Instant,
     logger: Option<Logger>,
     cmd_rx: Receiver<DispatchCmd>,
+    trace: Option<TraceReader>,
+    trace_next_at: Instant,
+    trace_next_idx: usize,
 
     wq: WorkQueue,
     cmpl_tx: Sender<WorkCompletion>,
@@ -192,10 +232,20 @@ impl DispatchThread {
         )
     }
 
-    fn new(params: Params, logger: Option<Logger>, cmd_rx: Receiver<DispatchCmd>) -> Self {
+    fn new(
+        params: Params,
+        logger: Option<Logger>,
+        cmd_rx: Receiver<DispatchCmd>,
+        trace_path: Option<String>,
+    ) -> Self {
         let (cmpl_tx, cmpl_rx) = channel::unbounded::<WorkCompletion>();
         let now = Instant::now();
         let (lat_pid, rps_pid) = Self::pid_controllers(&params);
+        let trace = trace_path
+            .as_deref()
+            .map(TraceReader::new)
+            .transpose()
+            .expect("failed to load trace file");
 
         Self {
             work_iters_normal: Self::work_iters_normal(&params),
@@ -208,6 +258,9 @@ impl DispatchThread {
             params_at: now,
             logger,
             cmd_rx,
+            trace,
+            trace_next_at: now,
+            trace_next_idx: 0,
             wq: WorkQueue::new(Duration::from_secs_f64(Self::WQ_IDLE_TIMEOUT)),
             cmpl_tx,
             cmpl_rx,
@@ -270,6 +323,57 @@ impl DispatchThread {
             });
 
             self.nr_in_flight += 1;
+        }
+    }
+
+    fn launch_workers_trace_driven(&mut self, launches: u32) {
+        if launches == 0 {
+            return;
+        }
+
+        let mut rng = SmallRng::from_entropy();
+
+        for idx in 0..launches {
+            let work_iters = self.work_iters_normal.sample(&mut rng).round() as u64;
+            let start_delay = idx as f64 / launches as f64;
+            let cpu_ratio = self.params.cpu_ratio;
+            let fake_cpu = self.params.fake_cpu_load;
+            let cmpl_tx = self.cmpl_tx.clone();
+
+            self.wq.queue(move || {
+                if start_delay > 0.0 {
+                    sleep(Duration::from_secs_f64(start_delay));
+                }
+
+                let started_at = Instant::now();
+
+                if fake_cpu {
+                    sleep(Duration::from_secs_f64((work_iters as f64) * 1e-9));
+                } else {
+                    let fib = fib_burn(work_iters, cpu_ratio);
+                    std::hint::black_box(fib);
+                }
+
+                cmpl_tx.send(WorkCompletion { started_at }).unwrap();
+            });
+
+            self.nr_in_flight += 1;
+        }
+    }
+
+    fn process_trace_ticks(&mut self, now: Instant) {
+        while now >= self.trace_next_at {
+            let launches = {
+                let trace = self.trace.as_ref().unwrap();
+                if self.trace_next_idx >= trace.len() {
+                    self.trace_next_idx = 0;
+                }
+                trace.launches_at(self.trace_next_idx)
+            };
+            self.concurrency = launches as f64;
+            self.launch_workers_trace_driven(launches);
+            self.trace_next_idx += 1;
+            self.trace_next_at += Duration::from_secs(1);
         }
     }
 
@@ -371,7 +475,12 @@ impl DispatchThread {
 
     fn run(&mut self) {
         loop {
-            self.launch_workers();
+            let now = Instant::now();
+            if self.trace.is_some() {
+                self.process_trace_ticks(now);
+            } else {
+                self.launch_workers();
+            }
 
             select! {
                 recv(self.cmd_rx) -> cmd => {
@@ -427,7 +536,7 @@ impl DispatchThread {
 
             let now = Instant::now();
             if now.duration_since(self.params_at).as_secs() >= 1 {
-                if self.refresh_lat_rps(now) {
+                if self.refresh_lat_rps(now) && self.trace.is_none() {
                     self.update_control();
                 }
             } else {
@@ -454,11 +563,12 @@ impl Dispatch {
         params: &Params,
         _anon_comp: f64,
         logger: Option<Logger>,
+        trace_path: Option<String>,
     ) -> Self {
         let params_copy = params.clone();
         let (cmd_tx, cmd_rx) = channel::unbounded();
         let dispatch_jh = Some(spawn(move || {
-            let mut dt = DispatchThread::new(params_copy, logger, cmd_rx);
+            let mut dt = DispatchThread::new(params_copy, logger, cmd_rx, trace_path);
             dt.run();
         }));
         let (stat_tx, stat_rx) = channel::unbounded();

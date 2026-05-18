@@ -17,6 +17,7 @@ lazy_static::lazy_static! {
              -p, --params=[FILE]           'Runtime updatable parameters, will be created if non-existent'
              -r, --report=[FILE]           'Runtime report file, FILE.staging will be used for staging'
              -l, --log-dir=[PATH]          'Record hash results to the files in PATH'
+             -T, --trace-path=[FILE]       'Replay per-second launches from FILE'
              -L, --log-size=[SIZE]         'Maximum log retention (default: {dfl_log_size:.2}G)'
              -i, --interval=[SECS]         'Summary report interval, 0 to disable (default: {dfl_intv}s)'
              -R, --rotational=[BOOL]       'Force rotational detection to either true or false'
@@ -75,6 +76,7 @@ pub struct Args {
     pub params: Option<String>,
     pub report: Option<String>,
     pub log_dir: Option<String>,
+    pub trace_path: Option<String>,
     pub log_size: u64,
     pub interval: u32,
     pub rotational: Option<bool>,
@@ -135,6 +137,7 @@ impl Args {
             params: None,
             report: None,
             log_dir: None,
+            trace_path: None,
             log_size: mem_size as u64 / 2,
             interval: 10,
             rotational: None,
@@ -286,6 +289,14 @@ impl JsonArgs for Args {
         }
         if let Some(v) = matches.value_of("log-dir") {
             self.log_dir = if v.len() > 0 {
+                Some(v.to_string())
+            } else {
+                None
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("trace-path") {
+            self.trace_path = if v.len() > 0 {
                 Some(v.to_string())
             } else {
                 None
