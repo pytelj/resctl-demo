@@ -157,7 +157,7 @@ PARAMS
     local N DDIR
     N=$((density * H))
     DDIR="$OUT_DIR/d${density}"
-    mkdir -p "$DDIR/reports"
+    mkdir -p "$DDIR/reports" "$DDIR/latencies"
 
     RUN_TAG="${RUN_ID_SAFE}-d${density}"
 
@@ -165,10 +165,12 @@ PARAMS
     echo "Density factor = ${density} (instances=${N})"
     echo "=============================="
 
-    local i unit rpt
+    local i unit rpt logdir
     for i in $(seq 0 $((N - 1))); do
       unit=$(printf "hashd-%s-%03d" "$RUN_TAG" "$i")
       rpt=$(printf "%s/reports/report-%03d.json" "$DDIR" "$i")
+      logdir=$(printf "%s/latencies/logs-%03d" "$DDIR" "$i")
+      mkdir -p "$logdir"
 
       sudo systemd-run \
         --unit="$unit" \
@@ -178,6 +180,7 @@ PARAMS
         "$RDH_BIN" \
           --params "$PARAMS_JSON" \
           --report "$rpt" \
+          --log-dir "$logdir" \
           --interval 1 >/dev/null
     done
 
