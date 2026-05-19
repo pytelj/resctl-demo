@@ -7,6 +7,9 @@ WARMUP_SEC="${WARMUP_SEC:-10}"
 TRACE_SEC="${TRACE_SEC:-30}"
 COOLDOWN_SEC="${COOLDOWN_SEC:-10}"
 SLICE="${SLICE:-faas.slice}"
+CGROUP_LAYOUT="${CGROUP_LAYOUT:-tenant_app_func}"  # flat | app_func | tenant_app_func
+FUNCS_PER_APP="${FUNCS_PER_APP:-4}"
+APPS_PER_TENANT="${APPS_PER_TENANT:-4}"
 
 REPO_ROOT="${REPO_ROOT:-$PWD}"
 RDH_BIN="${RDH_BIN:-$REPO_ROOT/target/release/rd-hashd}"
@@ -31,6 +34,42 @@ require_cmd() {
     echo "ERROR: missing command '$1'" >&2
     exit 1
   }
+}
+
+slice_base_name() {
+  local slice="$1"
+  [[ "$slice" == *.slice ]] || {
+    echo "ERROR: SLICE must end with .slice, got '$slice'" >&2
+    exit 1
+  }
+  printf "%s" "${slice%.slice}"
+}
+
+cgroup_slice_for_instance() {
+  local idx="$1"
+  local base="$2"
+  local app func tenant
+
+  case "$CGROUP_LAYOUT" in
+    flat)
+      printf "%s.slice" "$base"
+      ;;
+    app_func)
+      app=$((idx / FUNCS_PER_APP))
+      func=$((idx % FUNCS_PER_APP))
+      printf "%s-app%03d-func%03d.slice" "$base" "$app" "$func"
+      ;;
+    tenant_app_func)
+      tenant=$((idx / (APPS_PER_TENANT * FUNCS_PER_APP)))
+      app=$(((idx / FUNCS_PER_APP) % APPS_PER_TENANT))
+      func=$((idx % FUNCS_PER_APP))
+      printf "%s-tenant%03d-app%03d-func%03d.slice" "$base" "$tenant" "$app" "$func"
+      ;;
+    *)
+      echo "ERROR: CGROUP_LAYOUT must be flat, app_func, or tenant_app_func; got '$CGROUP_LAYOUT'" >&2
+      exit 1
+      ;;
+  esac
 }
 
 RUN_TAG=""
@@ -67,6 +106,10 @@ start_ftrace() {
     : > set_ftrace_filter
 
     echo schedule > set_ftrace_filter
+    echo pick_next_task_fair >> set_ftrace_filter
+    echo __pick_next_task_fair >> set_ftrace_filter
+    echo put_prev_task_fair >> set_ftrace_filter
+    echo put_prev_entity >> set_ftrace_filter
     echo function > current_tracer
     echo 1 > function_profile_enabled
     echo 1 > tracing_on
@@ -117,14 +160,18 @@ main() {
   [[ -x "$RDH_BIN" ]] || { echo "ERROR: rd-hashd not executable at $RDH_BIN" >&2; exit 1; }
   [[ -f "$PARAMS_JSON" ]] || { echo "ERROR: params file missing at $PARAMS_JSON" >&2; exit 1; }
   [[ -d "$TRACING_DIR" ]] || { echo "ERROR: tracing dir missing at $TRACING_DIR" >&2; exit 1; }
+  [[ "$FUNCS_PER_APP" =~ ^[0-9]+$ && "$FUNCS_PER_APP" -gt 0 ]] || { echo "ERROR: FUNCS_PER_APP must be a positive integer" >&2; exit 1; }
+  [[ "$APPS_PER_TENANT" =~ ^[0-9]+$ && "$APPS_PER_TENANT" -gt 0 ]] || { echo "ERROR: APPS_PER_TENANT must be a positive integer" >&2; exit 1; }
 
-  local H
+  local H SLICE_BASE
   H="$(nproc)"
+  SLICE_BASE="$(slice_base_name "$SLICE")"
 
   mkdir -p "$OUT_DIR"
 
   echo "Logs: $OUT_DIR"
   echo "Densities: $DENSITIES"
+  echo "Cgroup layout: $CGROUP_LAYOUT (root=$SLICE)"
   echo "Warmup=${WARMUP_SEC}s, Trace=${TRACE_SEC}s"
   echo
 
@@ -143,6 +190,9 @@ OUT_DIR=$OUT_DIR
 RDH_BIN=$RDH_BIN
 PARAMS_JSON=$PARAMS_JSON
 SLICE=$SLICE
+CGROUP_LAYOUT=$CGROUP_LAYOUT
+FUNCS_PER_APP=$FUNCS_PER_APP
+APPS_PER_TENANT=$APPS_PER_TENANT
 NPROC=$H
 PARAMS
 
@@ -165,16 +215,20 @@ PARAMS
     echo "Density factor = ${density} (instances=${N})"
     echo "=============================="
 
-    local i unit rpt logdir
+    printf "instance,unit,slice\n" > "$DDIR/cgroup_layout.csv"
+
+    local i unit rpt logdir unit_slice
     for i in $(seq 0 $((N - 1))); do
       unit=$(printf "hashd-%s-%03d" "$RUN_TAG" "$i")
       rpt=$(printf "%s/reports/report-%03d.json" "$DDIR" "$i")
       logdir=$(printf "%s/latencies/logs-%03d" "$DDIR" "$i")
+      unit_slice="$(cgroup_slice_for_instance "$i" "$SLICE_BASE")"
       mkdir -p "$logdir"
+      printf "%d,%s,%s\n" "$i" "$unit" "$unit_slice" >> "$DDIR/cgroup_layout.csv"
 
       sudo systemd-run \
         --unit="$unit" \
-        --slice="$SLICE" \
+        --slice="$unit_slice" \
         --property=CPUAccounting=yes \
         --property=MemoryAccounting=yes \
         "$RDH_BIN" \
