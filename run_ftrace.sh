@@ -10,10 +10,12 @@ SLICE="${SLICE:-faas.slice}"
 CGROUP_LAYOUT="${CGROUP_LAYOUT:-tenant_app_func}"  # flat | app_func | tenant_app_func
 FUNCS_PER_APP="${FUNCS_PER_APP:-4}"
 APPS_PER_TENANT="${APPS_PER_TENANT:-4}"
+USE_SCHED_EXT_WRAPPER="${USE_SCHED_EXT_WRAPPER:-0}"
 
 REPO_ROOT="${REPO_ROOT:-$PWD}"
 RDH_BIN="${RDH_BIN:-$REPO_ROOT/target/release/rd-hashd}"
 PARAMS_JSON="${PARAMS_JSON:-$REPO_ROOT/rdh/params.json}"
+SCHED_EXT_EXEC="${SCHED_EXT_EXEC:-$REPO_ROOT/sched_ext_exec}"
 
 LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/../sched-ext/logs/ftrace_resctl}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
@@ -162,6 +164,10 @@ main() {
   [[ -d "$TRACING_DIR" ]] || { echo "ERROR: tracing dir missing at $TRACING_DIR" >&2; exit 1; }
   [[ "$FUNCS_PER_APP" =~ ^[0-9]+$ && "$FUNCS_PER_APP" -gt 0 ]] || { echo "ERROR: FUNCS_PER_APP must be a positive integer" >&2; exit 1; }
   [[ "$APPS_PER_TENANT" =~ ^[0-9]+$ && "$APPS_PER_TENANT" -gt 0 ]] || { echo "ERROR: APPS_PER_TENANT must be a positive integer" >&2; exit 1; }
+  [[ "$USE_SCHED_EXT_WRAPPER" == "0" || "$USE_SCHED_EXT_WRAPPER" == "1" ]] || { echo "ERROR: USE_SCHED_EXT_WRAPPER must be 0 or 1" >&2; exit 1; }
+  if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
+    [[ -x "$SCHED_EXT_EXEC" ]] || { echo "ERROR: sched_ext wrapper not executable at $SCHED_EXT_EXEC" >&2; exit 1; }
+  fi
 
   local H SLICE_BASE
   H="$(nproc)"
@@ -172,6 +178,7 @@ main() {
   echo "Logs: $OUT_DIR"
   echo "Densities: $DENSITIES"
   echo "Cgroup layout: $CGROUP_LAYOUT (root=$SLICE)"
+  echo "sched_ext wrapper: $USE_SCHED_EXT_WRAPPER"
   echo "Warmup=${WARMUP_SEC}s, Trace=${TRACE_SEC}s"
   echo
 
@@ -189,6 +196,8 @@ LOG_ROOT=$LOG_ROOT
 OUT_DIR=$OUT_DIR
 RDH_BIN=$RDH_BIN
 PARAMS_JSON=$PARAMS_JSON
+USE_SCHED_EXT_WRAPPER=$USE_SCHED_EXT_WRAPPER
+SCHED_EXT_EXEC=$SCHED_EXT_EXEC
 SLICE=$SLICE
 CGROUP_LAYOUT=$CGROUP_LAYOUT
 FUNCS_PER_APP=$FUNCS_PER_APP
@@ -226,12 +235,18 @@ PARAMS
       mkdir -p "$logdir"
       printf "%d,%s,%s\n" "$i" "$unit" "$unit_slice" >> "$DDIR/cgroup_layout.csv"
 
+      local -a cmd=()
+      if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
+        cmd+=("$SCHED_EXT_EXEC")
+      fi
+      cmd+=("$RDH_BIN")
+
       sudo systemd-run \
         --unit="$unit" \
         --slice="$unit_slice" \
         --property=CPUAccounting=yes \
         --property=MemoryAccounting=yes \
-        "$RDH_BIN" \
+        "${cmd[@]}" \
           --params "$PARAMS_JSON" \
           --report "$rpt" \
           --log-dir "$logdir" \
