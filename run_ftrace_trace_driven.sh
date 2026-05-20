@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DENSITIES="${DENSITIES:-1 2 5 10 15 20}"
+DENSITIES="${DENSITIES:-1 5 10 20}"
 REPEATS="${REPEATS:-1}"
 WARMUP_SEC="${WARMUP_SEC:-10}"
 TRACE_SEC="${TRACE_SEC:-30}"
 COOLDOWN_SEC="${COOLDOWN_SEC:-10}"
 SLICE="${SLICE:-faas.slice}"
-CGROUP_LAYOUT="${CGROUP_LAYOUT:-flat}"
+CGROUP_LAYOUT="${CGROUP_LAYOUT:-tenant_app_func}"  # flat | app_func | tenant_app_func
 FUNCS_PER_APP="${FUNCS_PER_APP:-4}"
 APPS_PER_TENANT="${APPS_PER_TENANT:-4}"
+USE_SCHED_EXT_WRAPPER="${USE_SCHED_EXT_WRAPPER:-0}"
 
 REPO_ROOT="${REPO_ROOT:-$PWD}"
 RDH_BIN="${RDH_BIN:-$REPO_ROOT/target/release/rd-hashd}"
 PARAMS_JSON="${PARAMS_JSON:-$REPO_ROOT/rdh/params.json}"
+SCHED_EXT_EXEC="${SCHED_EXT_EXEC:-$REPO_ROOT/sched_ext_exec}"
 TRACE_SAMPLE_ROOT="${TRACE_SAMPLE_ROOT:-/home/janp/mphil/sched-ext/azure_traces/sampled_30s/rpi4}"
 
 # LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/../sched-ext/logs/ftrace_resctl_trace_driven_5m}"
@@ -165,6 +167,9 @@ main() {
   sudo -v
 
   [[ -x "$RDH_BIN" ]] || { echo "ERROR: rd-hashd not executable at $RDH_BIN" >&2; exit 1; }
+  if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
+    [[ -x "$SCHED_EXT_EXEC" ]] || { echo "ERROR: sched_ext_exec not executable at $SCHED_EXT_EXEC" >&2; exit 1; }
+  fi
   [[ -f "$PARAMS_JSON" ]] || { echo "ERROR: params file missing at $PARAMS_JSON" >&2; exit 1; }
   [[ -n "$TRACE_SAMPLE_ROOT" ]] || { echo "ERROR: TRACE_SAMPLE_ROOT must point at sampled trace dirs" >&2; exit 1; }
   [[ -d "$TRACE_SAMPLE_ROOT" ]] || { echo "ERROR: sampled trace root missing at $TRACE_SAMPLE_ROOT" >&2; exit 1; }
@@ -182,6 +187,7 @@ main() {
   echo "Densities: $DENSITIES"
   echo "Trace samples: $TRACE_SAMPLE_ROOT"
   echo "Cgroup layout: $CGROUP_LAYOUT (root=$SLICE)"
+  echo "sched_ext wrapper: $USE_SCHED_EXT_WRAPPER"
   echo "Warmup=${WARMUP_SEC}s, Trace=${TRACE_SEC}s"
   echo
 
@@ -199,6 +205,8 @@ LOG_ROOT=$LOG_ROOT
 OUT_DIR=$OUT_DIR
 RDH_BIN=$RDH_BIN
 PARAMS_JSON=$PARAMS_JSON
+USE_SCHED_EXT_WRAPPER=$USE_SCHED_EXT_WRAPPER
+SCHED_EXT_EXEC=$SCHED_EXT_EXEC
 TRACE_SAMPLE_ROOT=$TRACE_SAMPLE_ROOT
 SLICE=$SLICE
 CGROUP_LAYOUT=$CGROUP_LAYOUT
@@ -254,12 +262,18 @@ PARAMS
       cp "$trace_src" "$DDIR/trace_inputs/$trace_name"
       printf "%d,%s,%s,%s\n" "$i" "$unit" "$unit_slice" "$trace_name" >> "$DDIR/cgroup_layout.csv"
 
+      local -a cmd=()
+      if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
+        cmd+=("$SCHED_EXT_EXEC")
+      fi
+      cmd+=("$RDH_BIN")
+
       sudo systemd-run \
         --unit="$unit" \
         --slice="$unit_slice" \
         --property=CPUAccounting=yes \
         --property=MemoryAccounting=yes \
-        "$RDH_BIN" \
+        "${cmd[@]}" \
           --params "$PARAMS_JSON" \
           --report "$rpt" \
           --log-dir "$logdir" \
