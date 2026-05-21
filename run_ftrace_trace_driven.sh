@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DENSITIES="${DENSITIES:-1 5 10 20}"
+DENSITIES="${DENSITIES:-1 5 10 20 30 50}"
 REPEATS="${REPEATS:-1}"
 WARMUP_SEC="${WARMUP_SEC:-10}"
 TRACE_SEC="${TRACE_SEC:-30}"
@@ -114,7 +114,11 @@ start_ftrace() {
     echo __pick_next_task_fair >> set_ftrace_filter
     echo put_prev_task_fair >> set_ftrace_filter
     echo put_prev_entity >> set_ftrace_filter
-    echo function > current_tracer
+
+    echo function_graph > current_tracer
+    echo 0 > options/sleep-time
+    echo 1 > options/graph-time
+    echo 1 > options/funcgraph-duration
     echo 1 > function_profile_enabled
     echo 1 > tracing_on
   "
