@@ -11,6 +11,9 @@ CGROUP_LAYOUT="${CGROUP_LAYOUT:-tenant_app_func}"  # flat | app_func | tenant_ap
 FUNCS_PER_APP="${FUNCS_PER_APP:-4}"
 APPS_PER_TENANT="${APPS_PER_TENANT:-4}"
 USE_SCHED_EXT_WRAPPER="${USE_SCHED_EXT_WRAPPER:-0}"
+ENABLE_EEVDF_LAGS="${ENABLE_EEVDF_LAGS:-0}"
+LAGS_EMA_WINDOW="${LAGS_EMA_WINDOW:-1000}"
+LAGS_CGROUP_ROOT="${LAGS_CGROUP_ROOT:-}"
 
 REPO_ROOT="${REPO_ROOT:-$PWD}"
 RDH_BIN="${RDH_BIN:-$REPO_ROOT/target/release/rd-hashd}"
@@ -97,7 +100,90 @@ cleanup_tracing() {
   fi
 }
 
-trap 'cleanup_units; cleanup_tracing' EXIT INT TERM
+
+set_eevdf_lags_sysctls() {
+  local enable="$1"
+  if [[ "$enable" == "1" ]]; then
+    sudo sysctl -q kernel.sched_tg_load_avg_ema=1
+    sudo sysctl -q kernel.sched_tg_load_avg_ema_window="$LAGS_EMA_WINDOW"
+    sudo sysctl -q kernel.sched_entity_before_policy=1
+    sudo sysctl -q kernel.sched_cpu_has_higher_load_task=0
+    sudo sysctl -q kernel.sched_check_preempt_wakeup_latency_awareness=0
+  else
+    sudo sysctl -q kernel.sched_tg_load_avg_ema=0 2>/dev/null || true
+    sudo sysctl -q kernel.sched_tg_load_avg_ema_window=0 2>/dev/null || true
+    sudo sysctl -q kernel.sched_entity_before_policy=0 2>/dev/null || true
+    sudo sysctl -q kernel.sched_cpu_has_higher_load_task=0 2>/dev/null || true
+    sudo sysctl -q kernel.sched_check_preempt_wakeup_latency_awareness=0 2>/dev/null || true
+  fi
+}
+
+record_eevdf_lags_sysctls() {
+  local out="$1"
+  {
+    echo "==== EEVDF-LAGS sysctls ===="
+    sysctl kernel.sched_tg_load_avg_ema 2>/dev/null || true
+    sysctl kernel.sched_tg_load_avg_ema_window 2>/dev/null || true
+    sysctl kernel.sched_entity_before_policy 2>/dev/null || true
+    sysctl kernel.sched_cpu_has_higher_load_task 2>/dev/null || true
+    sysctl kernel.sched_check_preempt_wakeup_latency_awareness 2>/dev/null || true
+  } >> "$out"
+}
+
+enable_cpu_controller_tree() {
+  local root="$1"
+
+  [[ -d "$root" ]] || return 0
+
+  # cgroup v2 exposes cpu.* files to children only if +cpu is enabled in the
+  # parent's subtree_control. Do this top-down through the experiment tree.
+  find "$root" -type d |
+    awk '{ print gsub("/", "/"), $0 }' |
+    sort -n |
+    cut -d' ' -f2- |
+    while IFS= read -r d; do
+      find "$d" -mindepth 1 -maxdepth 1 -type d | grep -q . || continue
+      [[ -f "$d/cgroup.controllers" ]] || continue
+      grep -qw cpu "$d/cgroup.controllers" || continue
+      echo +cpu | sudo tee "$d/cgroup.subtree_control" >/dev/null || true
+    done
+}
+
+mark_eevdf_lags_cgroups() {
+  local root="$1"
+  local out="$2"
+
+  {
+    echo "LAGS_CGROUP_ROOT=$root"
+    if [[ ! -d "$root" ]]; then
+      echo "ERROR: cgroup root does not exist"
+      return 1
+    fi
+  } > "$out"
+
+  # Mark experiment cgroups latency aware
+  sudo find "$root" -name cpu.latency_awareness -exec sh -c 'echo 1 > "$1"' _ {} \;
+
+  find "$root" -type d | sort |
+    while IFS= read -r d; do
+      {
+        echo
+        echo "[$d]"
+        [[ -f "$d/cgroup.controllers" ]] && printf "cgroup.controllers=%s\n" "$(cat "$d/cgroup.controllers")"
+        [[ -f "$d/cgroup.subtree_control" ]] && printf "cgroup.subtree_control=%s\n" "$(cat "$d/cgroup.subtree_control")"
+        [[ -f "$d/cpu.latency_awareness" ]] && printf "cpu.latency_awareness=%s\n" "$(cat "$d/cpu.latency_awareness")"
+        [[ -f "$d/cpu.load_avg_ema" ]] && printf "cpu.load_avg_ema=%s\n" "$(cat "$d/cpu.load_avg_ema")"
+      } >> "$out"
+    done
+}
+
+reset_eevdf_lags_cgroups() {
+  local root="$1"
+  [[ -d "$root" ]] || return 0
+  sudo find "$root" -name cpu.latency_awareness -exec sh -c 'echo 0 > "$1"' _ {} \; 2>/dev/null || true
+}
+
+trap 'cleanup_units; cleanup_tracing; set_eevdf_lags_sysctls 0; reset_eevdf_lags_cgroups "${LAGS_CGROUP_ROOT:-}"' EXIT INT TERM
 
 start_ftrace() {
   sudo sh -c "
@@ -184,6 +270,8 @@ main() {
   [[ "$FUNCS_PER_APP" =~ ^[0-9]+$ && "$FUNCS_PER_APP" -gt 0 ]] || { echo "ERROR: FUNCS_PER_APP must be a positive integer" >&2; exit 1; }
   [[ "$APPS_PER_TENANT" =~ ^[0-9]+$ && "$APPS_PER_TENANT" -gt 0 ]] || { echo "ERROR: APPS_PER_TENANT must be a positive integer" >&2; exit 1; }
   [[ "$USE_SCHED_EXT_WRAPPER" == "0" || "$USE_SCHED_EXT_WRAPPER" == "1" ]] || { echo "ERROR: USE_SCHED_EXT_WRAPPER must be 0 or 1" >&2; exit 1; }
+  [[ "$ENABLE_EEVDF_LAGS" == "0" || "$ENABLE_EEVDF_LAGS" == "1" ]] || { echo "ERROR: ENABLE_EEVDF_LAGS must be 0 or 1" >&2; exit 1; }
+  [[ "$LAGS_EMA_WINDOW" =~ ^[0-9]+$ ]] || { echo "ERROR: LAGS_EMA_WINDOW must be a non-negative integer" >&2; exit 1; }
   if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
     [[ -x "$SCHED_EXT_EXEC" ]] || { echo "ERROR: sched_ext wrapper not executable at $SCHED_EXT_EXEC" >&2; exit 1; }
   fi
@@ -191,6 +279,14 @@ main() {
   local H SLICE_BASE
   H="$(nproc)"
   SLICE_BASE="$(slice_base_name "$SLICE")"
+  if [[ -z "$LAGS_CGROUP_ROOT" ]]; then
+    LAGS_CGROUP_ROOT="/sys/fs/cgroup/$SLICE"
+  fi
+
+  set_eevdf_lags_sysctls 0
+  if [[ "$ENABLE_EEVDF_LAGS" == "1" ]]; then
+    set_eevdf_lags_sysctls 1
+  fi
 
   mkdir -p "$OUT_DIR"
 
@@ -198,6 +294,7 @@ main() {
   echo "Densities: $DENSITIES"
   echo "Cgroup layout: $CGROUP_LAYOUT (root=$SLICE)"
   echo "sched_ext wrapper: $USE_SCHED_EXT_WRAPPER"
+  echo "EEVDF-LAGS: $ENABLE_EEVDF_LAGS (ema_window=$LAGS_EMA_WINDOW, root=$LAGS_CGROUP_ROOT)"
   echo "Warmup=${WARMUP_SEC}s, Trace=${TRACE_SEC}s"
   echo
 
@@ -217,6 +314,9 @@ RDH_BIN=$RDH_BIN
 PARAMS_JSON=$PARAMS_JSON
 USE_SCHED_EXT_WRAPPER=$USE_SCHED_EXT_WRAPPER
 SCHED_EXT_EXEC=$SCHED_EXT_EXEC
+ENABLE_EEVDF_LAGS=$ENABLE_EEVDF_LAGS
+LAGS_EMA_WINDOW=$LAGS_EMA_WINDOW
+LAGS_CGROUP_ROOT=$LAGS_CGROUP_ROOT
 SLICE=$SLICE
 CGROUP_LAYOUT=$CGROUP_LAYOUT
 FUNCS_PER_APP=$FUNCS_PER_APP
@@ -228,7 +328,9 @@ PARAMS
     echo
     echo "==== rdh/params.json ===="
     cat "$PARAMS_JSON"
+    echo
   } >> "$OUT_DIR/params.txt"
+  record_eevdf_lags_sysctls "$OUT_DIR/params.txt"
 
   local density
   for density in $DENSITIES; do
@@ -272,6 +374,13 @@ PARAMS
           --interval 1 >/dev/null
     done
 
+    if [[ "$ENABLE_EEVDF_LAGS" == "1" ]]; then
+      enable_cpu_controller_tree "$LAGS_CGROUP_ROOT"
+      mark_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT" "$DDIR/lags_cgroups.txt"
+    else
+      reset_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT"
+    fi
+
     sleep "$WARMUP_SEC"
 
     local trace_start_epoch trace_end_epoch trace_actual_sec
@@ -296,6 +405,11 @@ TRACE_ACTUAL_SEC=$trace_actual_sec
 TRACE_START_UTC=$trace_start_utc
 TRACE_END_UTC=$trace_end_utc
 TRACE_WINDOW
+
+    if [[ "$ENABLE_EEVDF_LAGS" == "1" ]]; then
+      enable_cpu_controller_tree "$LAGS_CGROUP_ROOT"
+      mark_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT" "$DDIR/lags_cgroups_after.txt"
+    fi
 
     cleanup_units
     RUN_TAG=""
