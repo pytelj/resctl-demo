@@ -374,8 +374,8 @@ PARAMS
           --interval 1 >/dev/null
     done
 
+    enable_cpu_controller_tree "$LAGS_CGROUP_ROOT"
     if [[ "$ENABLE_EEVDF_LAGS" == "1" ]]; then
-      enable_cpu_controller_tree "$LAGS_CGROUP_ROOT"
       mark_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT" "$DDIR/lags_cgroups.txt"
     else
       reset_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT"
@@ -407,7 +407,6 @@ TRACE_END_UTC=$trace_end_utc
 TRACE_WINDOW
 
     if [[ "$ENABLE_EEVDF_LAGS" == "1" ]]; then
-      enable_cpu_controller_tree "$LAGS_CGROUP_ROOT"
       mark_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT" "$DDIR/lags_cgroups_after.txt"
     fi
 
