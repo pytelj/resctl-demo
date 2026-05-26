@@ -203,11 +203,10 @@ start_ftrace() {
     echo put_prev_entity >> set_ftrace_filter
 
     # sched_ext
+    echo balance_scx >> set_ftrace_filter
     echo pick_task_scx >> set_ftrace_filter
     echo put_prev_task_scx >> set_ftrace_filter
-    echo enqueue_task_scx >> set_ftrace_filter
-    echo dequeue_task_scx >> set_ftrace_filter
-    echo task_tick_scx >> set_ftrace_filter
+    echo set_next_task_scx >> set_ftrace_filter
 
     echo function_graph > current_tracer
     echo 0 > options/sleep-time
