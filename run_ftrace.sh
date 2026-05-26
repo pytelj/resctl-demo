@@ -107,6 +107,25 @@ record_thermal() {
   } >> "$out"
 }
 
+record_cpu_freq() {
+  local out="$1"
+  local label="$2"
+  local cpu
+
+  {
+    echo "==== $label ===="
+    echo "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
+      [[ -d "$cpu/cpufreq" ]] || continue
+      echo "[$(basename "$cpu")]"
+      [[ -r "$cpu/cpufreq/scaling_governor" ]] && printf "scaling_governor=%s\n" "$(cat "$cpu/cpufreq/scaling_governor")"
+      [[ -r "$cpu/cpufreq/scaling_cur_freq" ]] && printf "scaling_cur_freq=%s\n" "$(cat "$cpu/cpufreq/scaling_cur_freq")"
+      [[ -r "$cpu/cpufreq/scaling_max_freq" ]] && printf "scaling_max_freq=%s\n" "$(cat "$cpu/cpufreq/scaling_max_freq")"
+    done
+    echo
+  } >> "$out"
+}
+
 cleanup_tracing() {
   if [[ -d "$TRACING_DIR" ]]; then
     sudo sh -c "
@@ -345,6 +364,7 @@ PARAMS
     echo
   } >> "$OUT_DIR/params.txt"
   record_eevdf_lags_sysctls "$OUT_DIR/params.txt"
+  record_cpu_freq "$OUT_DIR/cpu_freq.txt" "run_start"
 
   local density
   for density in $DENSITIES; do
@@ -398,8 +418,8 @@ PARAMS
       reset_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT"
     fi
 
-    record_thermal "$DDIR/thermal.txt" "before_trace"
     sleep "$WARMUP_SEC"
+    record_thermal "$DDIR/thermal.txt" "before_trace"
 
     local trace_start_epoch trace_end_epoch trace_actual_sec
     local trace_start_utc trace_end_utc
@@ -437,6 +457,7 @@ TRACE_WINDOW
   done
 
   echo "Done."
+  record_cpu_freq "$OUT_DIR/cpu_freq.txt" "run_end"
 }
 
 main "$@"
