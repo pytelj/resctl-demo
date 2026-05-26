@@ -446,7 +446,10 @@ PARAMS
     local N DDIR
     N=$((density * H))
     DDIR="$OUT_DIR/d${density}"
-    mkdir -p "$DDIR/reports" "$DDIR/latencies"
+    mkdir -p "$DDIR/latencies"
+    if [[ "$ENABLE_RDH_REPORTS" == "1" ]]; then
+      mkdir -p "$DDIR/reports"
+    fi
 
     RUN_TAG="${RUN_ID_SAFE}-d${density}"
 
