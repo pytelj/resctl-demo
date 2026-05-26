@@ -14,6 +14,7 @@ USE_SCHED_EXT_WRAPPER="${USE_SCHED_EXT_WRAPPER:-0}"
 ENABLE_EEVDF_LAGS="${ENABLE_EEVDF_LAGS:-0}"
 LAGS_EMA_WINDOW="${LAGS_EMA_WINDOW:-1000}"
 LAGS_CGROUP_ROOT="${LAGS_CGROUP_ROOT:-}"
+ENABLE_RDH_REPORTS="${ENABLE_RDH_REPORTS:-0}"
 
 REPO_ROOT="${REPO_ROOT:-$PWD}"
 RDH_BIN="${RDH_BIN:-$REPO_ROOT/target/release/rd-hashd}"
@@ -374,6 +375,7 @@ main() {
   [[ "$APPS_PER_TENANT" =~ ^[0-9]+$ && "$APPS_PER_TENANT" -gt 0 ]] || { echo "ERROR: APPS_PER_TENANT must be a positive integer" >&2; exit 1; }
   [[ "$USE_SCHED_EXT_WRAPPER" == "0" || "$USE_SCHED_EXT_WRAPPER" == "1" ]] || { echo "ERROR: USE_SCHED_EXT_WRAPPER must be 0 or 1" >&2; exit 1; }
   [[ "$ENABLE_EEVDF_LAGS" == "0" || "$ENABLE_EEVDF_LAGS" == "1" ]] || { echo "ERROR: ENABLE_EEVDF_LAGS must be 0 or 1" >&2; exit 1; }
+  [[ "$ENABLE_RDH_REPORTS" == "0" || "$ENABLE_RDH_REPORTS" == "1" ]] || { echo "ERROR: ENABLE_RDH_REPORTS must be 0 or 1" >&2; exit 1; }
   [[ "$LAGS_EMA_WINDOW" =~ ^[0-9]+$ ]] || { echo "ERROR: LAGS_EMA_WINDOW must be a non-negative integer" >&2; exit 1; }
   if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
     [[ -x "$SCHED_EXT_EXEC" ]] || { echo "ERROR: sched_ext wrapper not executable at $SCHED_EXT_EXEC" >&2; exit 1; }
@@ -398,6 +400,7 @@ main() {
   echo "Cgroup layout: $CGROUP_LAYOUT (root=$SLICE)"
   echo "sched_ext wrapper: $USE_SCHED_EXT_WRAPPER"
   echo "EEVDF-LAGS: $ENABLE_EEVDF_LAGS (ema_window=$LAGS_EMA_WINDOW, root=$LAGS_CGROUP_ROOT)"
+  echo "rd-hashd reports: $ENABLE_RDH_REPORTS"
   echo "Warmup=${WARMUP_SEC}s, Trace=${TRACE_SEC}s"
   echo
 
@@ -415,6 +418,7 @@ LOG_ROOT=$LOG_ROOT
 OUT_DIR=$OUT_DIR
 RDH_BIN=$RDH_BIN
 PARAMS_JSON=$PARAMS_JSON
+ENABLE_RDH_REPORTS=$ENABLE_RDH_REPORTS
 USE_SCHED_EXT_WRAPPER=$USE_SCHED_EXT_WRAPPER
 SCHED_EXT_EXEC=$SCHED_EXT_EXEC
 ENABLE_EEVDF_LAGS=$ENABLE_EEVDF_LAGS
@@ -467,6 +471,10 @@ PARAMS
         cmd+=("$SCHED_EXT_EXEC")
       fi
       cmd+=("$RDH_BIN")
+      cmd+=(--params "$PARAMS_JSON" --log-dir "$logdir" --interval 1)
+      if [[ "$ENABLE_RDH_REPORTS" == "1" ]]; then
+        cmd+=(--report "$rpt")
+      fi
 
       sudo systemd-run \
         --unit="$unit" \
@@ -475,11 +483,7 @@ PARAMS
         --property=MemoryAccounting=yes \
         --property=TimeoutStopSec=5s \
         --property=KillMode=control-group \
-        "${cmd[@]}" \
-          --params "$PARAMS_JSON" \
-          --report "$rpt" \
-          --log-dir "$logdir" \
-          --interval 1 >/dev/null
+        "${cmd[@]}" >/dev/null
     done
 
     enable_cpu_controller_tree "$LAGS_CGROUP_ROOT"
