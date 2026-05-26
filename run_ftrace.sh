@@ -151,23 +151,16 @@ record_cgroup_cpu_state() {
   local out="$1"
   local label="$2"
   local root="$3"
-  local d
 
   {
     echo "==== $label ===="
     echo "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "root=$root"
     if [[ -d "$root" ]]; then
-      find "$root" -type d | sort | while IFS= read -r d; do
-        echo
-        echo "[$d]"
-        [[ -f "$d/cgroup.controllers" ]] && printf "cgroup.controllers=%s\n" "$(cat "$d/cgroup.controllers")"
-        [[ -f "$d/cgroup.subtree_control" ]] && printf "cgroup.subtree_control=%s\n" "$(cat "$d/cgroup.subtree_control")"
-        if [[ -f "$d/cpu.stat" ]]; then
-          echo "cpu.stat:"
-          sed 's/^/  /' "$d/cpu.stat"
-        fi
-      done
+      echo "total_cgroups=$(find "$root" -type d | wc -l)"
+      echo "cgroups_with_cpu_controller=$(find "$root" -type f -name cgroup.controllers -exec grep -lqw cpu {} \; | wc -l)"
+      echo "cgroups_with_cpu_subtree_enabled=$(find "$root" -type f -name cgroup.subtree_control -exec grep -lqw cpu {} \; | wc -l)"
+      echo "cgroups_with_cpu_stat=$(find "$root" -type f -name cpu.stat | wc -l)"
     else
       echo "root_missing=1"
     fi
