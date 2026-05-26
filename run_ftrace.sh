@@ -126,6 +126,27 @@ record_cpu_freq() {
   } >> "$out"
 }
 
+record_sched_ext_state() {
+  local out="$1"
+  local label="$2"
+  local f
+
+  {
+    echo "==== $label ===="
+    echo "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    if [[ -d /sys/kernel/sched_ext ]]; then
+      for f in state root/ops enable_seq nr_rejected switch_all; do
+        if [[ -r "/sys/kernel/sched_ext/$f" ]]; then
+          printf "%s=%s\n" "$f" "$(cat "/sys/kernel/sched_ext/$f")"
+        fi
+      done
+    else
+      echo "sched_ext=missing"
+    fi
+    echo
+  } >> "$out"
+}
+
 cleanup_tracing() {
   if [[ -d "$TRACING_DIR" ]]; then
     sudo sh -c "
@@ -365,6 +386,7 @@ PARAMS
   } >> "$OUT_DIR/params.txt"
   record_eevdf_lags_sysctls "$OUT_DIR/params.txt"
   record_cpu_freq "$OUT_DIR/cpu_freq.txt" "run_start"
+  record_sched_ext_state "$OUT_DIR/sched_ext_state.txt" "run_start"
 
   local density
   for density in $DENSITIES; do
@@ -458,6 +480,7 @@ TRACE_WINDOW
 
   echo "Done."
   record_cpu_freq "$OUT_DIR/cpu_freq.txt" "run_end"
+  record_sched_ext_state "$OUT_DIR/sched_ext_state.txt" "run_end"
 }
 
 main "$@"
