@@ -195,12 +195,12 @@ start_ftrace() {
 
     echo schedule > set_ftrace_filter
 
-    # fair class (CFS)
+    # fair class (CFS/EEVDF)
     echo pick_next_task_fair >> set_ftrace_filter
-    echo put_prev_task_fair >> set_ftrace_filter
-    echo enqueue_task_fair >> set_ftrace_filter
-    echo dequeue_task_fair >> set_ftrace_filter
-    echo task_tick_fair >> set_ftrace_filter
+    echo pick_task_fair >> set_ftrace_filter
+
+    # CFS/EEVDF internals
+    echo put_prev_entity >> set_ftrace_filter
 
     # sched_ext
     echo pick_task_scx >> set_ftrace_filter
@@ -208,11 +208,6 @@ start_ftrace() {
     echo enqueue_task_scx >> set_ftrace_filter
     echo dequeue_task_scx >> set_ftrace_filter
     echo task_tick_scx >> set_ftrace_filter
-
-    # CFS internals
-    echo put_prev_entity >> set_ftrace_filter
-    echo enqueue_entity >> set_ftrace_filter
-    echo dequeue_entity >> set_ftrace_filter
 
     echo function_graph > current_tracer
     echo 0 > options/sleep-time
