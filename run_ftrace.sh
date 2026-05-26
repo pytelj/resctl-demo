@@ -87,6 +87,26 @@ cleanup_units() {
   done
 }
 
+record_thermal() {
+  local out="$1"
+  local label="$2"
+
+  {
+    echo "==== $label ===="
+    echo "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    if command -v vcgencmd >/dev/null 2>&1; then
+      vcgencmd measure_temp 2>/dev/null || true
+      vcgencmd get_throttled 2>/dev/null || true
+    else
+      echo "vcgencmd=missing"
+    fi
+    if [[ -r /sys/class/thermal/thermal_zone0/temp ]]; then
+      awk '{ printf "thermal_zone0_millicelsius=%s\n", $1 }' /sys/class/thermal/thermal_zone0/temp
+    fi
+    echo
+  } >> "$out"
+}
+
 cleanup_tracing() {
   if [[ -d "$TRACING_DIR" ]]; then
     sudo sh -c "
@@ -340,6 +360,7 @@ PARAMS
     echo "=============================="
 
     printf "instance,unit,slice\n" > "$DDIR/cgroup_layout.csv"
+    record_thermal "$DDIR/thermal.txt" "before_start"
 
     local i unit rpt logdir unit_slice
     for i in $(seq 0 $((N - 1))); do
@@ -361,6 +382,8 @@ PARAMS
         --slice="$unit_slice" \
         --property=CPUAccounting=yes \
         --property=MemoryAccounting=yes \
+        --property=TimeoutStopSec=5s \
+        --property=KillMode=control-group \
         "${cmd[@]}" \
           --params "$PARAMS_JSON" \
           --report "$rpt" \
@@ -375,6 +398,7 @@ PARAMS
       reset_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT"
     fi
 
+    record_thermal "$DDIR/thermal.txt" "before_trace"
     sleep "$WARMUP_SEC"
 
     local trace_start_epoch trace_end_epoch trace_actual_sec
@@ -404,8 +428,10 @@ TRACE_WINDOW
       mark_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT" "$DDIR/lags_cgroups_after.txt"
     fi
 
+    record_thermal "$DDIR/thermal.txt" "after_trace_before_cleanup"
     cleanup_units
     RUN_TAG=""
+    record_thermal "$DDIR/thermal.txt" "after_cleanup"
     sleep "$COOLDOWN_SEC"
     echo
   done
