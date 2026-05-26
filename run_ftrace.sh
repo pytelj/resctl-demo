@@ -82,10 +82,16 @@ RUN_TAG=""
 cleanup_units() {
   [[ -z "${RUN_TAG:-}" ]] && return 0
   local pattern="hashd-${RUN_TAG}-"
+  local -a units=()
   local u
-  for u in $(systemctl list-units --type=service --all --no-pager --plain | awk -v p="$pattern" '$1 ~ p {print $1}'); do
-    sudo systemctl stop "$u" >/dev/null 2>&1 || true
-  done
+
+  while IFS= read -r u; do
+    [[ -n "$u" ]] && units+=("$u")
+  done < <(systemctl list-units --type=service --all --no-pager --plain | awk -v p="$pattern" '$1 ~ p {print $1}')
+
+  if [[ "${#units[@]}" -gt 0 ]]; then
+    sudo systemctl stop "${units[@]}" >/dev/null 2>&1 || true
+  fi
 }
 
 record_thermal() {
