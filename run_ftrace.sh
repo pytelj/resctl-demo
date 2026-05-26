@@ -147,6 +147,34 @@ record_sched_ext_state() {
   } >> "$out"
 }
 
+record_cgroup_cpu_state() {
+  local out="$1"
+  local label="$2"
+  local root="$3"
+  local d
+
+  {
+    echo "==== $label ===="
+    echo "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "root=$root"
+    if [[ -d "$root" ]]; then
+      find "$root" -type d | sort | while IFS= read -r d; do
+        echo
+        echo "[$d]"
+        [[ -f "$d/cgroup.controllers" ]] && printf "cgroup.controllers=%s\n" "$(cat "$d/cgroup.controllers")"
+        [[ -f "$d/cgroup.subtree_control" ]] && printf "cgroup.subtree_control=%s\n" "$(cat "$d/cgroup.subtree_control")"
+        if [[ -f "$d/cpu.stat" ]]; then
+          echo "cpu.stat:"
+          sed 's/^/  /' "$d/cpu.stat"
+        fi
+      done
+    else
+      echo "root_missing=1"
+    fi
+    echo
+  } >> "$out"
+}
+
 cleanup_tracing() {
   if [[ -d "$TRACING_DIR" ]]; then
     sudo sh -c "
@@ -442,6 +470,7 @@ PARAMS
 
     sleep "$WARMUP_SEC"
     record_thermal "$DDIR/thermal.txt" "before_trace"
+    record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "before_trace" "$LAGS_CGROUP_ROOT"
 
     local trace_start_epoch trace_end_epoch trace_actual_sec
     local trace_start_utc trace_end_utc
@@ -471,6 +500,7 @@ TRACE_WINDOW
     fi
 
     record_thermal "$DDIR/thermal.txt" "after_trace_before_cleanup"
+    record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "after_trace_before_cleanup" "$LAGS_CGROUP_ROOT"
     cleanup_units
     RUN_TAG=""
     record_thermal "$DDIR/thermal.txt" "after_cleanup"
