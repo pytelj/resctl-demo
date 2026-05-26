@@ -175,6 +175,34 @@ record_cgroup_cpu_state() {
   } >> "$out"
 }
 
+record_sched_ext_task_count() {
+  local out="$1"
+  local label="$2"
+  local proc_count=0
+  local thread_count=0
+  local p t
+
+  for p in $(pgrep -x rd-hashd 2>/dev/null || true); do
+    if grep -q 'ext.enabled[[:space:]]*:.*1' "/proc/$p/sched" 2>/dev/null; then
+      proc_count=$((proc_count + 1))
+    fi
+    for t in /proc/"$p"/task/[0-9]*; do
+      [[ -f "$t/sched" ]] || continue
+      if grep -q 'ext.enabled[[:space:]]*:.*1' "$t/sched" 2>/dev/null; then
+        thread_count=$((thread_count + 1))
+      fi
+    done
+  done
+
+  {
+    echo "==== $label ===="
+    echo "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "rd_hashd_ext_enabled_processes=$proc_count"
+    echo "rd_hashd_ext_enabled_threads=$thread_count"
+    echo
+  } >> "$out"
+}
+
 cleanup_tracing() {
   if [[ -d "$TRACING_DIR" ]]; then
     sudo sh -c "
@@ -471,6 +499,7 @@ PARAMS
     sleep "$WARMUP_SEC"
     record_thermal "$DDIR/thermal.txt" "before_trace"
     record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "before_trace" "$LAGS_CGROUP_ROOT"
+    record_sched_ext_task_count "$DDIR/sched_ext_task_count.txt" "before_trace"
 
     local trace_start_epoch trace_end_epoch trace_actual_sec
     local trace_start_utc trace_end_utc
@@ -501,6 +530,7 @@ TRACE_WINDOW
 
     record_thermal "$DDIR/thermal.txt" "after_trace_before_cleanup"
     record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "after_trace_before_cleanup" "$LAGS_CGROUP_ROOT"
+    record_sched_ext_task_count "$DDIR/sched_ext_task_count.txt" "after_trace_before_cleanup"
     cleanup_units
     RUN_TAG=""
     record_thermal "$DDIR/thermal.txt" "after_cleanup"
