@@ -43,6 +43,10 @@ require_cmd() {
   }
 }
 
+log() {
+  printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"
+}
+
 start_sudo_keepalive() {
   if [[ "${SUDO_KEEPALIVE_ACTIVE:-0}" == "1" ]]; then
     return
@@ -398,10 +402,7 @@ main() {
     start_sudo_keepalive
 
     for rep in $(seq 1 "$requested_repeats"); do
-      echo "=============================="
-      echo "Repeat $rep / $requested_repeats"
-      echo "Started: $(date --iso-8601=seconds)"
-      echo "=============================="
+      log "repeat $rep/$requested_repeats starting"
 
       RUN_ID="$(date +%Y%m%d_%H%M%S)"
       OUT_DIR="${LOG_ROOT}/${RUN_ID}"
@@ -409,14 +410,14 @@ main() {
       REPEATS=1 main "$@"
 
       if [[ "$rep" -lt "$requested_repeats" ]]; then
-        echo "Finished repeat $rep / $requested_repeats"
-        echo "Sleeping ${REPEAT_SLEEP_SEC}s before next repeat..."
+        log "repeat $rep/$requested_repeats finished"
+        log "sleeping ${REPEAT_SLEEP_SEC}s before next repeat"
         echo
         sleep "$REPEAT_SLEEP_SEC"
       fi
     done
 
-    echo "Finished all repeats."
+    log "all repeats finished"
     return
   fi
 
@@ -449,13 +450,13 @@ main() {
 
   mkdir -p "$OUT_DIR"
 
-  echo "Logs: $OUT_DIR"
-  echo "Densities: $DENSITIES"
-  echo "Cgroup layout: $CGROUP_LAYOUT (root=$SLICE)"
-  echo "sched_ext wrapper: $USE_SCHED_EXT_WRAPPER"
-  echo "EEVDF-LAGS: $ENABLE_EEVDF_LAGS (ema_window=$LAGS_EMA_WINDOW, root=$LAGS_CGROUP_ROOT)"
-  echo "rd-hashd reports: $ENABLE_RDH_REPORTS"
-  echo "Warmup=${WARMUP_SEC}s, Trace=${TRACE_SEC}s"
+  log "logs: $OUT_DIR"
+  log "densities: $DENSITIES"
+  log "cgroup layout: $CGROUP_LAYOUT (root=$SLICE)"
+  log "sched_ext wrapper: $USE_SCHED_EXT_WRAPPER"
+  log "EEVDF-LAGS: $ENABLE_EEVDF_LAGS (ema_window=$LAGS_EMA_WINDOW, root=$LAGS_CGROUP_ROOT)"
+  log "rd-hashd reports: $ENABLE_RDH_REPORTS"
+  log "warmup=${WARMUP_SEC}s trace=${TRACE_SEC}s cooldown=${COOLDOWN_SEC}s"
   echo
 
   cat > "$OUT_DIR/params.txt" <<PARAMS
@@ -507,14 +508,13 @@ PARAMS
 
     RUN_TAG="${RUN_ID_SAFE}-d${density}"
 
-    echo "=============================="
-    echo "Density factor = ${density} (instances=${N})"
-    echo "=============================="
+    log "d${density}: starting (${N} instances)"
 
     printf "instance,unit,slice\n" > "$DDIR/cgroup_layout.csv"
     record_thermal "$DDIR/thermal.txt" "before_start"
 
     local i unit rpt logdir unit_slice
+    log "d${density}: launching instances"
     for i in $(seq 0 $((N - 1))); do
       unit=$(printf "hashd-%s-%03d" "$RUN_TAG" "$i")
       rpt=$(printf "%s/reports/report-%03d.json" "$DDIR" "$i")
@@ -543,6 +543,7 @@ PARAMS
         "${cmd[@]}" >/dev/null
     done
 
+    log "d${density}: cgroup setup"
     enable_cpu_controller_tree "$LAGS_CGROUP_ROOT"
     if [[ "$ENABLE_EEVDF_LAGS" == "1" ]]; then
       mark_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT" "$DDIR/lags_cgroups.txt"
@@ -550,7 +551,9 @@ PARAMS
       reset_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT"
     fi
 
+    log "d${density}: warmup ${WARMUP_SEC}s"
     sleep "$WARMUP_SEC"
+    log "d${density}: pre-trace logging"
     record_thermal "$DDIR/thermal.txt" "before_trace"
     record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "before_trace" "$LAGS_CGROUP_ROOT"
     record_sched_ext_task_count "$DDIR/sched_ext_task_count.txt" "before_trace"
@@ -560,10 +563,10 @@ PARAMS
 
     trace_start_epoch="$(date +%s.%N)"
     trace_start_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
-    echo "[ftrace] starting..."
+    log "d${density}: ftrace starting"
     start_ftrace
     sleep "$TRACE_SEC"
-    echo "[ftrace] stopping + dumping..."
+    log "d${density}: ftrace stopping + dumping"
     stop_ftrace_dump "$DDIR" "$H"
     trace_end_epoch="$(date +%s.%N)"
     trace_end_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
@@ -585,14 +588,16 @@ TRACE_WINDOW
     record_thermal "$DDIR/thermal.txt" "after_trace_before_cleanup"
     record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "after_trace_before_cleanup" "$LAGS_CGROUP_ROOT"
     record_sched_ext_task_count "$DDIR/sched_ext_task_count.txt" "after_trace_before_cleanup"
+    log "d${density}: cleanup"
     cleanup_units
     RUN_TAG=""
     record_thermal "$DDIR/thermal.txt" "after_cleanup"
+    log "d${density}: done"
     sleep "$COOLDOWN_SEC"
     echo
   done
 
-  echo "Done."
+  log "done"
   record_cpu_freq "$OUT_DIR/cpu_freq.txt" "run_end"
   record_sched_ext_state "$OUT_DIR/sched_ext_state.txt" "run_end"
 }
