@@ -165,6 +165,7 @@ record_sched_ext_state() {
           printf "%s=%s\n" "$f" "$(cat "/sys/kernel/sched_ext/$f")"
         fi
       done
+      printf "scx_cmdline=%s\n" "$(pgrep -af '/scx_' | paste -sd '|' -)"
     else
       echo "sched_ext=missing"
     fi
