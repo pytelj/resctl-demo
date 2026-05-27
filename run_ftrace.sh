@@ -61,7 +61,6 @@ start_sudo_keepalive() {
   SUDO_KEEPALIVE_PID="$!"
   SUDO_KEEPALIVE_ACTIVE=1
   export SUDO_KEEPALIVE_ACTIVE
-  trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
 }
 
 slice_base_name() {
@@ -328,7 +327,17 @@ reset_eevdf_lags_cgroups() {
   sudo find "$root" -name cpu.latency_awareness -exec sh -c 'echo 0 > "$1"' _ {} \; 2>/dev/null || true
 }
 
-trap 'cleanup_units; cleanup_tracing; set_eevdf_lags_sysctls 0; reset_eevdf_lags_cgroups "${LAGS_CGROUP_ROOT:-}"' EXIT INT TERM
+cleanup_all() {
+  cleanup_units
+  cleanup_tracing
+  set_eevdf_lags_sysctls 0
+  reset_eevdf_lags_cgroups "${LAGS_CGROUP_ROOT:-}"
+  if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]]; then
+    kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+  fi
+}
+
+trap cleanup_all EXIT INT TERM
 
 start_ftrace() {
   sudo sh -c "
@@ -502,6 +511,11 @@ PARAMS
   record_cpu_freq "$OUT_DIR/cpu_freq.txt" "run_start"
   record_sched_ext_state "$OUT_DIR/sched_ext_state.txt" "run_start"
 
+  log "initial cleanup of stale units/slices"
+  cleanup_faas_slices
+  log "resetting EEVDF-LAGS cgroup flags"
+  reset_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT"
+
   local density
   for density in $DENSITIES; do
     local N DDIR
@@ -555,8 +569,6 @@ PARAMS
     enable_cpu_controller_tree "$LAGS_CGROUP_ROOT"
     if [[ "$ENABLE_EEVDF_LAGS" == "1" ]]; then
       mark_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT" "$DDIR/lags_cgroups.txt"
-    else
-      reset_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT"
     fi
 
     log "d${density}: warmup ${WARMUP_SEC}s"
