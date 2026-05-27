@@ -6,6 +6,7 @@ REPEATS="${REPEATS:-1}"
 WARMUP_SEC="${WARMUP_SEC:-10}"
 TRACE_SEC="${TRACE_SEC:-30}"
 COOLDOWN_SEC="${COOLDOWN_SEC:-10}"
+REPEAT_SLEEP_SEC="${REPEAT_SLEEP_SEC:-300}"
 SLICE="${SLICE:-faas.slice}"
 CGROUP_LAYOUT="${CGROUP_LAYOUT:-tenant_app_func}"  # flat | app_func | tenant_app_func
 FUNCS_PER_APP="${FUNCS_PER_APP:-4}"
@@ -369,9 +370,34 @@ main() {
   require_cmd python3
   require_cmd systemd-run
 
-  if [[ "$REPEATS" != "1" ]]; then
-    echo "ERROR: REPEATS=$REPEATS is not notebook-compatible. Use REPEATS=1." >&2
-    exit 1
+  [[ "$REPEATS" =~ ^[0-9]+$ && "$REPEATS" -gt 0 ]] || { echo "ERROR: REPEATS must be a positive integer" >&2; exit 1; }
+  [[ "$REPEAT_SLEEP_SEC" =~ ^[0-9]+$ ]] || { echo "ERROR: REPEAT_SLEEP_SEC must be a non-negative integer" >&2; exit 1; }
+
+  if [[ "$REPEATS" -gt 1 ]]; then
+    local requested_repeats="$REPEATS"
+    local rep
+
+    for rep in $(seq 1 "$requested_repeats"); do
+      echo "=============================="
+      echo "Repeat $rep / $requested_repeats"
+      echo "Started: $(date --iso-8601=seconds)"
+      echo "=============================="
+
+      RUN_ID="$(date +%Y%m%d_%H%M%S)"
+      OUT_DIR="${LOG_ROOT}/${RUN_ID}"
+      RUN_ID_SAFE="$(echo "$RUN_ID" | tr -c 'A-Za-z0-9_.-' '_')"
+      REPEATS=1 main "$@"
+
+      if [[ "$rep" -lt "$requested_repeats" ]]; then
+        echo "Finished repeat $rep / $requested_repeats"
+        echo "Sleeping ${REPEAT_SLEEP_SEC}s before next repeat..."
+        echo
+        sleep "$REPEAT_SLEEP_SEC"
+      fi
+    done
+
+    echo "Finished all repeats."
+    return
   fi
 
   sudo -v
