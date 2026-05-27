@@ -312,6 +312,7 @@ start_ftrace() {
     echo schedule > set_ftrace_filter
 
     # fair class (CFS/EEVDF)
+    echo dequeue_task_fair >> set_ftrace_filter
     echo pick_next_task_fair >> set_ftrace_filter
     echo pick_task_fair >> set_ftrace_filter
 
@@ -319,6 +320,7 @@ start_ftrace() {
     echo put_prev_entity >> set_ftrace_filter
 
     # sched_ext
+    echo dequeue_task_scx >> set_ftrace_filter
     echo balance_scx >> set_ftrace_filter
     echo pick_task_scx >> set_ftrace_filter
     echo put_prev_task_scx >> set_ftrace_filter
