@@ -116,6 +116,12 @@ cleanup_units() {
   fi
 }
 
+cleanup_faas_slices() {
+  sudo systemctl stop 'hashd-*' >/dev/null 2>&1 || true
+  sudo systemctl stop 'faas-*.slice' >/dev/null 2>&1 || true
+  sudo systemctl reset-failed 'hashd-*' >/dev/null 2>&1 || true
+}
+
 record_thermal() {
   local out="$1"
   local label="$2"
@@ -509,6 +515,8 @@ PARAMS
     RUN_TAG="${RUN_ID_SAFE}-d${density}"
 
     log "d${density}: starting (${N} instances)"
+    log "d${density}: cleaning stale units/slices"
+    cleanup_faas_slices
 
     printf "instance,unit,slice\n" > "$DDIR/cgroup_layout.csv"
     record_thermal "$DDIR/thermal.txt" "before_start"
