@@ -43,6 +43,23 @@ require_cmd() {
   }
 }
 
+start_sudo_keepalive() {
+  if [[ "${SUDO_KEEPALIVE_ACTIVE:-0}" == "1" ]]; then
+    return
+  fi
+
+  sudo -v
+  while true; do
+    sudo -n true
+    sleep 60
+  done &
+
+  SUDO_KEEPALIVE_PID="$!"
+  SUDO_KEEPALIVE_ACTIVE=1
+  export SUDO_KEEPALIVE_ACTIVE
+  trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
+}
+
 slice_base_name() {
   local slice="$1"
   [[ "$slice" == *.slice ]] || {
@@ -377,6 +394,8 @@ main() {
     local requested_repeats="$REPEATS"
     local rep
 
+    start_sudo_keepalive
+
     for rep in $(seq 1 "$requested_repeats"); do
       echo "=============================="
       echo "Repeat $rep / $requested_repeats"
@@ -400,7 +419,7 @@ main() {
     return
   fi
 
-  sudo -v
+  start_sudo_keepalive
 
   [[ -x "$RDH_BIN" ]] || { echo "ERROR: rd-hashd not executable at $RDH_BIN" >&2; exit 1; }
   [[ -f "$PARAMS_JSON" ]] || { echo "ERROR: params file missing at $PARAMS_JSON" >&2; exit 1; }
