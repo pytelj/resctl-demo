@@ -575,8 +575,8 @@ PARAMS
     sleep "$WARMUP_SEC"
     log "d${density}: pre-trace logging"
     record_thermal "$DDIR/thermal.txt" "before_trace"
-    record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "before_trace" "$LAGS_CGROUP_ROOT"
-    record_sched_ext_task_count "$DDIR/sched_ext_task_count.txt" "before_trace"
+    # record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "before_trace" "$LAGS_CGROUP_ROOT"
+    # record_sched_ext_task_count "$DDIR/sched_ext_task_count.txt" "before_trace"
 
     local trace_start_epoch trace_end_epoch trace_actual_sec
     local trace_start_utc trace_end_utc
