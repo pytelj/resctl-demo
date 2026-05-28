@@ -614,6 +614,7 @@ TRACE_WINDOW
     cleanup_units
     RUN_TAG=""
     record_thermal "$DDIR/thermal.txt" "after_cleanup"
+    record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "after_cleanup" "$LAGS_CGROUP_ROOT"
     log "d${density}: done"
     sleep "$COOLDOWN_SEC"
     echo
