@@ -607,7 +607,9 @@ TRACE_WINDOW
 
     record_thermal "$DDIR/thermal.txt" "after_trace_before_cleanup"
     record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "after_trace_before_cleanup" "$LAGS_CGROUP_ROOT"
-    record_sched_ext_task_count "$DDIR/sched_ext_task_count.txt" "after_trace_before_cleanup"
+    if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
+      record_sched_ext_task_count "$DDIR/sched_ext_task_count.txt" "after_trace_before_cleanup"
+    fi
     log "d${density}: cleanup"
     cleanup_units
     RUN_TAG=""
