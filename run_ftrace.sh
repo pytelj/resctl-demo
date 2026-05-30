@@ -114,18 +114,7 @@ sample_dir_for_density() {
 
 RUN_TAG=""
 cleanup_units() {
-  [[ -z "${RUN_TAG:-}" ]] && return 0
-  local pattern="hashd-${RUN_TAG}-"
-  local -a units=()
-  local u
-
-  while IFS= read -r u; do
-    [[ -n "$u" ]] && units+=("$u")
-  done < <(systemctl list-units --type=service --all --no-pager --plain | awk -v p="$pattern" '$1 ~ p {print $1}')
-
-  if [[ "${#units[@]}" -gt 0 ]]; then
-    sudo systemctl stop "${units[@]}" >/dev/null 2>&1 || true
-  fi
+  sudo pkill -f rd-hashd >/dev/null 2>&1 || true
 }
 
 cleanup_faas_slices() {
@@ -653,6 +642,7 @@ PARAMS
     trace_end_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
     log "d${density}: ftrace stopping + dumping"
     stop_ftrace_dump "$DDIR" "$H"
+    log "d${density}: ftrace stopped + dumped"
     trace_actual_sec="$(awk -v s="$trace_start_epoch" -v e="$trace_end_epoch" 'BEGIN{printf "%.6f", e-s}')"
 
     cat > "$DDIR/trace_window.txt" <<TRACE_WINDOW
@@ -668,22 +658,21 @@ TRACE_LAUNCH_SCALE=$TRACE_LAUNCH_SCALE
 TRACE_INSTANCE_COUNT=$N
 TRACE_WINDOW
 
-    if [[ "$ENABLE_EEVDF_LAGS" == "1" ]]; then
-      mark_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT" "$DDIR/lags_cgroups_after.txt"
-    fi
-
-    record_thermal "$DDIR/thermal.txt" "after_trace_before_cleanup"
-    record_sched_ext_state "$DDIR/sched_ext_state.txt" "after_trace_before_cleanup"
-    record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "after_trace_before_cleanup" "$LAGS_CGROUP_ROOT"
-    if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
-      record_sched_ext_task_count "$DDIR/sched_ext_task_count.txt" "after_trace_before_cleanup"
-    fi
     log "d${density}: cleanup"
     cleanup_units
+    log "d${density}: cleanup successful"
     RUN_TAG=""
+
+    # TODO: Probably remove this
+    if [[ "$ENABLE_EEVDF_LAGS" == "1" ]]; then
+      mark_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT" "$DDIR/lags_cgroups_after_cleanup.txt"
+    fi
+
     record_thermal "$DDIR/thermal.txt" "after_cleanup"
+    record_sched_ext_state "$DDIR/sched_ext_state.txt" "after_cleanup"
     record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "after_cleanup" "$LAGS_CGROUP_ROOT"
     log "d${density}: done"
+    log "d${density}: cooldown ${COOLDOWN_SEC}s"
     sleep "$COOLDOWN_SEC"
     echo
   done
