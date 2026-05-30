@@ -338,7 +338,7 @@ cleanup_all() {
 
 trap cleanup_all EXIT INT TERM
 
-start_ftrace() {
+prepare_ftrace() {
   sudo sh -c "
     cd '$TRACING_DIR' || exit 1
     echo 0 > tracing_on
@@ -367,6 +367,12 @@ start_ftrace() {
     echo 0 > options/sleep-time
     echo 1 > options/graph-time
     echo 1 > options/funcgraph-duration
+  "
+}
+
+arm_ftrace() {
+  sudo sh -c "
+    cd '$TRACING_DIR' || exit 1
     echo 1 > function_profile_enabled
     echo 1 > tracing_on
   "
@@ -641,6 +647,9 @@ PARAMS
     local trace_start_epoch trace_end_epoch trace_actual_sec
     local trace_start_utc trace_end_utc
 
+    log "d${density}: ftrace preparing"
+    prepare_ftrace
+
     if [[ "$WORKLOAD_MODE" == "trace" ]]; then
       local now_epoch trace_wait_sec
       now_epoch="$(date +%s.%N)"
@@ -653,8 +662,8 @@ PARAMS
       sleep "$trace_wait_sec"
     fi
 
-    log "d${density}: ftrace starting"
-    start_ftrace
+    log "d${density}: ftrace arming"
+    arm_ftrace
     trace_start_epoch="$(date +%s.%N)"
     trace_start_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
     sleep "$TRACE_SEC"
