@@ -7,6 +7,7 @@ WARMUP_SEC="${WARMUP_SEC:-10}"
 TRACE_SEC="${TRACE_SEC:-30}"
 COOLDOWN_SEC="${COOLDOWN_SEC:-10}"
 REPEAT_SLEEP_SEC="${REPEAT_SLEEP_SEC:-300}"
+ENABLE_SUDO_KEEPALIVE="${ENABLE_SUDO_KEEPALIVE:-1}"
 SLICE="${SLICE:-faas.slice}"
 CGROUP_LAYOUT="${CGROUP_LAYOUT:-tenant_app_func}"  # flat | app_func | tenant_app_func
 FUNCS_PER_APP="${FUNCS_PER_APP:-4}"
@@ -409,12 +410,15 @@ main() {
 
   [[ "$REPEATS" =~ ^[0-9]+$ && "$REPEATS" -gt 0 ]] || { echo "ERROR: REPEATS must be a positive integer" >&2; exit 1; }
   [[ "$REPEAT_SLEEP_SEC" =~ ^[0-9]+$ ]] || { echo "ERROR: REPEAT_SLEEP_SEC must be a non-negative integer" >&2; exit 1; }
+  [[ "$ENABLE_SUDO_KEEPALIVE" == "0" || "$ENABLE_SUDO_KEEPALIVE" == "1" ]] || { echo "ERROR: ENABLE_SUDO_KEEPALIVE must be 0 or 1" >&2; exit 1; }
 
   if [[ "$REPEATS" -gt 1 ]]; then
     local requested_repeats="$REPEATS"
     local rep
 
-    start_sudo_keepalive
+    if [[ "$ENABLE_SUDO_KEEPALIVE" == "1" ]]; then
+      start_sudo_keepalive
+    fi
 
     for rep in $(seq 1 "$requested_repeats"); do
       log "repeat $rep/$requested_repeats starting"
@@ -436,7 +440,9 @@ main() {
     return
   fi
 
-  start_sudo_keepalive
+  if [[ "$ENABLE_SUDO_KEEPALIVE" == "1" ]]; then
+    start_sudo_keepalive
+  fi
 
   [[ -x "$RDH_BIN" ]] || { echo "ERROR: rd-hashd not executable at $RDH_BIN" >&2; exit 1; }
   [[ -f "$PARAMS_JSON" ]] || { echo "ERROR: params file missing at $PARAMS_JSON" >&2; exit 1; }
@@ -471,6 +477,7 @@ main() {
   log "sched_ext wrapper: $USE_SCHED_EXT_WRAPPER"
   log "EEVDF-LAGS: $ENABLE_EEVDF_LAGS (ema_window=$LAGS_EMA_WINDOW, root=$LAGS_CGROUP_ROOT)"
   log "rd-hashd reports: $ENABLE_RDH_REPORTS"
+  log "sudo keepalive: $ENABLE_SUDO_KEEPALIVE"
   log "warmup=${WARMUP_SEC}s trace=${TRACE_SEC}s cooldown=${COOLDOWN_SEC}s"
   echo
 
@@ -489,6 +496,7 @@ OUT_DIR=$OUT_DIR
 RDH_BIN=$RDH_BIN
 PARAMS_JSON=$PARAMS_JSON
 ENABLE_RDH_REPORTS=$ENABLE_RDH_REPORTS
+ENABLE_SUDO_KEEPALIVE=$ENABLE_SUDO_KEEPALIVE
 USE_SCHED_EXT_WRAPPER=$USE_SCHED_EXT_WRAPPER
 SCHED_EXT_EXEC=$SCHED_EXT_EXEC
 ENABLE_EEVDF_LAGS=$ENABLE_EEVDF_LAGS
