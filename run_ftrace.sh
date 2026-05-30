@@ -20,6 +20,7 @@ ENABLE_RDH_REPORTS="${ENABLE_RDH_REPORTS:-0}"
 WORKLOAD_MODE="${WORKLOAD_MODE:-trace}"  # controlled | trace
 TRACE_SAMPLE_ROOT="${TRACE_SAMPLE_ROOT:-/home/janp/mphil/sched-ext/azure_traces/sampled_30s/rpi4}"
 TRACE_LAUNCH_SCALE="${TRACE_LAUNCH_SCALE:-20}"
+TRACE_START_AT_BUDGET="${TRACE_START_AT_BUDGET:-20}"
 
 REPO_ROOT="${REPO_ROOT:-$PWD}"
 RDH_BIN="${RDH_BIN:-$REPO_ROOT/target/release/rd-hashd}"
@@ -451,6 +452,7 @@ main() {
   [[ "$ENABLE_RDH_REPORTS" == "0" || "$ENABLE_RDH_REPORTS" == "1" ]] || { echo "ERROR: ENABLE_RDH_REPORTS must be 0 or 1" >&2; exit 1; }
   [[ "$WORKLOAD_MODE" == "controlled" || "$WORKLOAD_MODE" == "trace" ]] || { echo "ERROR: WORKLOAD_MODE must be controlled or trace" >&2; exit 1; }
   [[ "$TRACE_LAUNCH_SCALE" =~ ^[0-9]+$ && "$TRACE_LAUNCH_SCALE" -gt 0 ]] || { echo "ERROR: TRACE_LAUNCH_SCALE must be a positive integer" >&2; exit 1; }
+  [[ "$TRACE_START_AT_BUDGET" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "ERROR: TRACE_START_AT_BUDGET must be a non-negative number" >&2; exit 1; }
   [[ "$LAGS_EMA_WINDOW" =~ ^[0-9]+$ ]] || { echo "ERROR: LAGS_EMA_WINDOW must be a non-negative integer" >&2; exit 1; }
   if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
     [[ -x "$SCHED_EXT_EXEC" ]] || { echo "ERROR: sched_ext wrapper not executable at $SCHED_EXT_EXEC" >&2; exit 1; }
@@ -481,7 +483,7 @@ main() {
   log "EEVDF-LAGS: $ENABLE_EEVDF_LAGS (ema_window=$LAGS_EMA_WINDOW, root=$LAGS_CGROUP_ROOT)"
   log "workload mode: $WORKLOAD_MODE"
   if [[ "$WORKLOAD_MODE" == "trace" ]]; then
-    log "trace samples: $TRACE_SAMPLE_ROOT (launch_scale=$TRACE_LAUNCH_SCALE)"
+    log "trace samples: $TRACE_SAMPLE_ROOT (launch_scale=$TRACE_LAUNCH_SCALE, start_budget=${TRACE_START_AT_BUDGET}s)"
   fi
   log "rd-hashd reports: $ENABLE_RDH_REPORTS"
   log "sudo keepalive: $ENABLE_SUDO_KEEPALIVE"
@@ -507,6 +509,7 @@ ENABLE_SUDO_KEEPALIVE=$ENABLE_SUDO_KEEPALIVE
 WORKLOAD_MODE=$WORKLOAD_MODE
 TRACE_SAMPLE_ROOT=$TRACE_SAMPLE_ROOT
 TRACE_LAUNCH_SCALE=$TRACE_LAUNCH_SCALE
+TRACE_START_AT_BUDGET=$TRACE_START_AT_BUDGET
 USE_SCHED_EXT_WRAPPER=$USE_SCHED_EXT_WRAPPER
 SCHED_EXT_EXEC=$SCHED_EXT_EXEC
 ENABLE_EEVDF_LAGS=$ENABLE_EEVDF_LAGS
@@ -536,7 +539,7 @@ PARAMS
 
   local density
   for density in $DENSITIES; do
-    local N DDIR sample_dir
+    local N DDIR sample_dir trace_start_at_epoch
     local -a trace_files=()
 
     if [[ "$WORKLOAD_MODE" == "trace" ]]; then
@@ -561,6 +564,7 @@ PARAMS
     fi
 
     RUN_TAG="${RUN_ID_SAFE}-d${density}"
+    trace_start_at_epoch=""
 
     log "d${density}: starting (${N} instances)"
     if [[ "$WORKLOAD_MODE" == "trace" ]]; then
@@ -568,6 +572,10 @@ PARAMS
     fi
     log "d${density}: cleaning stale units/slices"
     cleanup_units
+    if [[ "$WORKLOAD_MODE" == "trace" ]]; then
+      trace_start_at_epoch="$(awk -v now="$(date +%s.%N)" -v budget="$TRACE_START_AT_BUDGET" 'BEGIN { printf "%.9f", now + budget }')"
+      log "d${density}: trace replay start epoch $trace_start_at_epoch"
+    fi
 
     printf "instance,unit,slice,trace\n" > "$DDIR/cgroup_layout.csv"
     record_thermal "$DDIR/thermal.txt" "before_start"
@@ -596,7 +604,7 @@ PARAMS
       cmd+=("$RDH_BIN")
       cmd+=(--params "$PARAMS_JSON" --log-dir "$logdir" --interval 1)
       if [[ "$WORKLOAD_MODE" == "trace" ]]; then
-        cmd+=(--trace-path "$trace_src" --trace-launch-scale "$TRACE_LAUNCH_SCALE")
+        cmd+=(--trace-path "$trace_src" --trace-launch-scale "$TRACE_LAUNCH_SCALE" --trace-start-at "$trace_start_at_epoch")
       fi
       if [[ "$ENABLE_RDH_REPORTS" == "1" ]]; then
         cmd+=(--report "$rpt")
@@ -629,6 +637,18 @@ PARAMS
     local trace_start_epoch trace_end_epoch trace_actual_sec
     local trace_start_utc trace_end_utc
 
+    if [[ "$WORKLOAD_MODE" == "trace" ]]; then
+      local now_epoch trace_wait_sec
+      now_epoch="$(date +%s.%N)"
+      trace_wait_sec="$(awk -v start="$trace_start_at_epoch" -v now="$now_epoch" 'BEGIN { printf "%.6f", start - now }')"
+      if awk -v wait="$trace_wait_sec" 'BEGIN { exit !(wait <= 0) }'; then
+        echo "ERROR: trace replay start time already passed for d${density}; increase TRACE_START_AT_BUDGET (wait=${trace_wait_sec}s)" >&2
+        exit 1
+      fi
+      log "d${density}: waiting ${trace_wait_sec}s for synchronized trace start"
+      sleep "$trace_wait_sec"
+    fi
+
     log "d${density}: ftrace starting"
     start_ftrace
     trace_start_epoch="$(date +%s.%N)"
@@ -651,6 +671,8 @@ TRACE_END_UTC=$trace_end_utc
 WORKLOAD_MODE=$WORKLOAD_MODE
 TRACE_SAMPLE_DIR=${sample_dir:-}
 TRACE_LAUNCH_SCALE=$TRACE_LAUNCH_SCALE
+TRACE_START_AT_BUDGET=$TRACE_START_AT_BUDGET
+TRACE_START_AT_EPOCH=$trace_start_at_epoch
 TRACE_INSTANCE_COUNT=$N
 TRACE_WINDOW
 
