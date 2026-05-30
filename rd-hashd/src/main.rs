@@ -249,6 +249,7 @@ fn main() {
         create_logger(args, params),
         args.trace_path.clone(),
         args.trace_launch_scale,
+        args.trace_start_at,
     );
 
     //

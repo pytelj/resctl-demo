@@ -12,7 +12,7 @@ use sha1_smol::{Digest, Sha1};
 use std::fs::File;
 use std::path::Path;
 use std::thread::{sleep, spawn, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rd_hashd_intf::{Latencies, Params, Stat};
 
@@ -171,6 +171,7 @@ struct DispatchThread {
     logger: Option<Logger>,
     cmd_rx: Receiver<DispatchCmd>,
     trace: Option<TraceReader>,
+    trace_start_at: Option<f64>,
     trace_next_at: Instant,
     trace_next_idx: usize,
 
@@ -242,6 +243,7 @@ impl DispatchThread {
         cmd_rx: Receiver<DispatchCmd>,
         trace_path: Option<String>,
         trace_launch_scale: u32,
+        trace_start_at: Option<f64>,
     ) -> Self {
         let (cmpl_tx, cmpl_rx) = channel::unbounded::<WorkCompletion>();
         let now = Instant::now();
@@ -264,6 +266,7 @@ impl DispatchThread {
             logger,
             cmd_rx,
             trace,
+            trace_start_at,
             trace_next_at: now,
             trace_next_idx: 0,
             wq: WorkQueue::new(Duration::from_secs_f64(Self::WQ_IDLE_TIMEOUT)),
@@ -479,6 +482,23 @@ impl DispatchThread {
     }
 
     fn run(&mut self) {
+        if self.trace.is_some() {
+            if let Some(start_at) = self.trace_start_at {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs_f64();
+                if start_at > now {
+                    sleep(Duration::from_secs_f64(start_at - now));
+                }
+
+                let now = Instant::now();
+                self.trace_next_at = now;
+                self.params_at = now;
+                self.reset_lat_rps(now);
+            }
+        }
+
         loop {
             let now = Instant::now();
             if self.trace.is_some() {
@@ -570,12 +590,20 @@ impl Dispatch {
         logger: Option<Logger>,
         trace_path: Option<String>,
         trace_launch_scale: u32,
+        trace_start_at: Option<f64>,
     ) -> Self {
         let params_copy = params.clone();
         let (cmd_tx, cmd_rx) = channel::unbounded();
         let dispatch_jh = Some(spawn(move || {
             let mut dt =
-                DispatchThread::new(params_copy, logger, cmd_rx, trace_path, trace_launch_scale);
+                DispatchThread::new(
+                    params_copy,
+                    logger,
+                    cmd_rx,
+                    trace_path,
+                    trace_launch_scale,
+                    trace_start_at,
+                );
             dt.run();
         }));
         let (stat_tx, stat_rx) = channel::unbounded();

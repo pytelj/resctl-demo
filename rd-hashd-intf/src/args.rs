@@ -19,6 +19,7 @@ lazy_static::lazy_static! {
              -l, --log-dir=[PATH]          'Record hash results to the files in PATH'
              -T, --trace-path=[FILE]       'Replay per-second launches from FILE'
                  --trace-launch-scale=[N]  'Multiply per-second trace launches by N (default: 1)'
+                 --trace-start-at=[EPOCH]  'Start trace replay at UNIX epoch time in seconds'
              -L, --log-size=[SIZE]         'Maximum log retention (default: {dfl_log_size:.2}G)'
              -i, --interval=[SECS]         'Summary report interval, 0 to disable (default: {dfl_intv}s)'
              -R, --rotational=[BOOL]       'Force rotational detection to either true or false'
@@ -79,6 +80,7 @@ pub struct Args {
     pub log_dir: Option<String>,
     pub trace_path: Option<String>,
     pub trace_launch_scale: u32,
+    pub trace_start_at: Option<f64>,
     pub log_size: u64,
     pub interval: u32,
     pub rotational: Option<bool>,
@@ -141,6 +143,7 @@ impl Args {
             log_dir: None,
             trace_path: None,
             trace_launch_scale: 1,
+            trace_start_at: None,
             log_size: mem_size as u64 / 2,
             interval: 10,
             rotational: None,
@@ -311,6 +314,14 @@ impl JsonArgs for Args {
                 v.parse::<u32>().unwrap().max(1)
             } else {
                 dfl.trace_launch_scale
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("trace-start-at") {
+            self.trace_start_at = if v.len() > 0 {
+                Some(v.parse::<f64>().unwrap().max(0.0))
+            } else {
+                dfl.trace_start_at
             };
             updated_base = true;
         }

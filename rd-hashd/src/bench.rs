@@ -277,7 +277,7 @@ impl TestHasher {
         fill_anon: bool,
         verbose: bool,
     ) -> Self {
-        let disp = hasher::Dispatch::new(max_size, tf, params, comp, logger, None, 1);
+        let disp = hasher::Dispatch::new(max_size, tf, params, comp, logger, None, 1, None);
         if fill_anon {
             disp.fill_anon();
         }
