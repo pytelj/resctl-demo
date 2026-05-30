@@ -581,10 +581,10 @@ PARAMS
     local trace_start_epoch trace_end_epoch trace_actual_sec
     local trace_start_utc trace_end_utc
 
-    trace_start_epoch="$(date +%s.%N)"
-    trace_start_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
     log "d${density}: ftrace starting"
     start_ftrace
+    trace_start_epoch="$(date +%s.%N)"
+    trace_start_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
     sleep "$TRACE_SEC"
     trace_end_epoch="$(date +%s.%N)"
     trace_end_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
