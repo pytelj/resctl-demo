@@ -626,8 +626,12 @@ PARAMS
       mark_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT" "$DDIR/lags_cgroups.txt"
     fi
 
-    log "d${density}: warmup ${WARMUP_SEC}s"
-    sleep "$WARMUP_SEC"
+    if [[ "$WORKLOAD_MODE" == "trace" ]]; then
+      log "d${density}: warmup skipped for synchronized trace start"
+    else
+      log "d${density}: warmup ${WARMUP_SEC}s"
+      sleep "$WARMUP_SEC"
+    fi
     log "d${density}: pre-trace logging"
     record_thermal "$DDIR/thermal.txt" "before_trace"
     record_sched_ext_state "$DDIR/sched_ext_state.txt" "before_trace"
