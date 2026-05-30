@@ -637,6 +637,7 @@ PARAMS
     sleep "$WARMUP_SEC"
     log "d${density}: pre-trace logging"
     record_thermal "$DDIR/thermal.txt" "before_trace"
+    record_sched_ext_state "$DDIR/sched_ext_state.txt" "before_trace"
     # record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "before_trace" "$LAGS_CGROUP_ROOT"
     # record_sched_ext_task_count "$DDIR/sched_ext_task_count.txt" "before_trace"
 
@@ -672,6 +673,7 @@ TRACE_WINDOW
     fi
 
     record_thermal "$DDIR/thermal.txt" "after_trace_before_cleanup"
+    record_sched_ext_state "$DDIR/sched_ext_state.txt" "after_trace_before_cleanup"
     record_cgroup_cpu_state "$DDIR/cgroup_cpu_state.txt" "after_trace_before_cleanup" "$LAGS_CGROUP_ROOT"
     if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
       record_sched_ext_task_count "$DDIR/sched_ext_task_count.txt" "after_trace_before_cleanup"
