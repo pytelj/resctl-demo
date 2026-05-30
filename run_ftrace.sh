@@ -9,7 +9,7 @@ COOLDOWN_SEC="${COOLDOWN_SEC:-10}"
 REPEAT_SLEEP_SEC="${REPEAT_SLEEP_SEC:-300}"
 ENABLE_SUDO_KEEPALIVE="${ENABLE_SUDO_KEEPALIVE:-1}"
 SLICE="${SLICE:-faas.slice}"
-CGROUP_LAYOUT="${CGROUP_LAYOUT:-tenant_app_func}"  # flat | app_func | tenant_app_func
+CGROUP_LAYOUT="${CGROUP_LAYOUT:-tenant_app_func}"  # flat | func | app_func | tenant_app_func
 FUNCS_PER_APP="${FUNCS_PER_APP:-4}"
 APPS_PER_TENANT="${APPS_PER_TENANT:-4}"
 USE_SCHED_EXT_WRAPPER="${USE_SCHED_EXT_WRAPPER:-0}"
@@ -82,6 +82,10 @@ cgroup_slice_for_instance() {
     flat)
       printf "%s.slice" "$base"
       ;;
+    func)
+      func=$idx
+      printf "%s-func%03d.slice" "$base" "$func"
+      ;;
     app_func)
       app=$((idx / FUNCS_PER_APP))
       func=$((idx % FUNCS_PER_APP))
@@ -94,7 +98,7 @@ cgroup_slice_for_instance() {
       printf "%s-tenant%03d-app%03d-func%03d.slice" "$base" "$tenant" "$app" "$func"
       ;;
     *)
-      echo "ERROR: CGROUP_LAYOUT must be flat, app_func, or tenant_app_func; got '$CGROUP_LAYOUT'" >&2
+      echo "ERROR: CGROUP_LAYOUT must be flat, func, app_func, or tenant_app_func; got '$CGROUP_LAYOUT'" >&2
       exit 1
       ;;
   esac
