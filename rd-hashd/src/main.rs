@@ -248,6 +248,7 @@ fn main() {
         args.compressibility,
         create_logger(args, params),
         args.trace_path.clone(),
+        args.trace_launch_scale,
     );
 
     //

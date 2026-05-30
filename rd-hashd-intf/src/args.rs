@@ -18,6 +18,7 @@ lazy_static::lazy_static! {
              -r, --report=[FILE]           'Runtime report file, FILE.staging will be used for staging'
              -l, --log-dir=[PATH]          'Record hash results to the files in PATH'
              -T, --trace-path=[FILE]       'Replay per-second launches from FILE'
+                 --trace-launch-scale=[N]  'Multiply per-second trace launches by N (default: 1)'
              -L, --log-size=[SIZE]         'Maximum log retention (default: {dfl_log_size:.2}G)'
              -i, --interval=[SECS]         'Summary report interval, 0 to disable (default: {dfl_intv}s)'
              -R, --rotational=[BOOL]       'Force rotational detection to either true or false'
@@ -77,6 +78,7 @@ pub struct Args {
     pub report: Option<String>,
     pub log_dir: Option<String>,
     pub trace_path: Option<String>,
+    pub trace_launch_scale: u32,
     pub log_size: u64,
     pub interval: u32,
     pub rotational: Option<bool>,
@@ -138,6 +140,7 @@ impl Args {
             report: None,
             log_dir: None,
             trace_path: None,
+            trace_launch_scale: 1,
             log_size: mem_size as u64 / 2,
             interval: 10,
             rotational: None,
@@ -300,6 +303,14 @@ impl JsonArgs for Args {
                 Some(v.to_string())
             } else {
                 None
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("trace-launch-scale") {
+            self.trace_launch_scale = if v.len() > 0 {
+                v.parse::<u32>().unwrap().max(1)
+            } else {
+                dfl.trace_launch_scale
             };
             updated_base = true;
         }

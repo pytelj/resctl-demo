@@ -126,10 +126,11 @@ struct WorkCompletion {
 
 struct TraceReader {
     launches: Vec<u32>,
+    launch_scale: u32,
 }
 
 impl TraceReader {
-    fn new(trace_path: &str) -> Result<Self> {
+    fn new(trace_path: &str, launch_scale: u32) -> Result<Self> {
         let file = File::open(trace_path)?;
         let mut rdr = Reader::from_reader(file);
         let mut launches = Vec::new();
@@ -147,7 +148,10 @@ impl TraceReader {
             anyhow::bail!("trace file {} contained no samples", trace_path);
         }
 
-        Ok(Self { launches })
+        Ok(Self {
+            launches,
+            launch_scale: launch_scale.max(1),
+        })
     }
 
     fn len(&self) -> usize {
@@ -155,7 +159,7 @@ impl TraceReader {
     }
 
     fn launches_at(&self, idx: usize) -> u32 {
-        self.launches[idx % self.launches.len()]
+        self.launches[idx % self.launches.len()].saturating_mul(self.launch_scale)
     }
 }
 
@@ -237,13 +241,14 @@ impl DispatchThread {
         logger: Option<Logger>,
         cmd_rx: Receiver<DispatchCmd>,
         trace_path: Option<String>,
+        trace_launch_scale: u32,
     ) -> Self {
         let (cmpl_tx, cmpl_rx) = channel::unbounded::<WorkCompletion>();
         let now = Instant::now();
         let (lat_pid, rps_pid) = Self::pid_controllers(&params);
         let trace = trace_path
             .as_deref()
-            .map(TraceReader::new)
+            .map(|path| TraceReader::new(path, trace_launch_scale))
             .transpose()
             .expect("failed to load trace file");
 
@@ -564,11 +569,13 @@ impl Dispatch {
         _anon_comp: f64,
         logger: Option<Logger>,
         trace_path: Option<String>,
+        trace_launch_scale: u32,
     ) -> Self {
         let params_copy = params.clone();
         let (cmd_tx, cmd_rx) = channel::unbounded();
         let dispatch_jh = Some(spawn(move || {
-            let mut dt = DispatchThread::new(params_copy, logger, cmd_rx, trace_path);
+            let mut dt =
+                DispatchThread::new(params_copy, logger, cmd_rx, trace_path, trace_launch_scale);
             dt.run();
         }));
         let (stat_tx, stat_rx) = channel::unbounded();
