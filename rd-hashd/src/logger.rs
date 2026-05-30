@@ -166,7 +166,7 @@ impl LogWorker {
 
         let min_len = self.padding.load(atomic::Ordering::Relaxed) as usize;
         let mut line = Vec::<u8>::with_capacity(min_len.max(64));
-        let now_str = Local::now().format("%Y-%m-%d %H:%M:%S");
+        let now_str = Local::now().format("%Y-%m-%d %H:%M:%S%.6f");
         write!(&mut line, "[{}] {}\n", now_str, msg).unwrap();
         let line_len = line.len();
 
