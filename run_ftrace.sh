@@ -283,7 +283,10 @@ enable_cpu_controller_tree() {
       find "$d" -mindepth 1 -maxdepth 1 -type d | grep -q . || continue
       [[ -f "$d/cgroup.controllers" ]] || continue
       grep -qw cpu "$d/cgroup.controllers" || continue
-      echo +cpu | sudo tee "$d/cgroup.subtree_control" >/dev/null || true
+      if ! echo +cpu | sudo tee "$d/cgroup.subtree_control" >/dev/null; then
+        echo "ERROR: failed to enable +cpu in $d/cgroup.subtree_control" >&2
+        return 1
+      fi
     done
 }
 
