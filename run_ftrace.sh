@@ -209,26 +209,18 @@ record_sched_ext_task_count() {
   local out="$1"
   local label="$2"
   local proc_count=0
-  local thread_count=0
-  local p t
+  local p
 
   for p in $(pgrep -x rd-hashd 2>/dev/null || true); do
     if grep -q 'ext.enabled[[:space:]]*:.*1' "/proc/$p/sched" 2>/dev/null; then
       proc_count=$((proc_count + 1))
     fi
-    for t in /proc/"$p"/task/[0-9]*; do
-      [[ -f "$t/sched" ]] || continue
-      if grep -q 'ext.enabled[[:space:]]*:.*1' "$t/sched" 2>/dev/null; then
-        thread_count=$((thread_count + 1))
-      fi
-    done
   done
 
   {
     echo "==== $label ===="
     echo "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "rd_hashd_ext_enabled_processes=$proc_count"
-    echo "rd_hashd_ext_enabled_threads=$thread_count"
     echo
   } >> "$out"
 }
