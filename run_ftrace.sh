@@ -12,7 +12,7 @@ SLICE="${SLICE:-faas.slice}"
 CGROUP_LAYOUT="${CGROUP_LAYOUT:-tenant_app_func}"  # flat | func | app_func | tenant_app_func
 FUNCS_PER_APP="${FUNCS_PER_APP:-4}"
 APPS_PER_TENANT="${APPS_PER_TENANT:-4}"
-USE_SCHED_EXT_WRAPPER="${USE_SCHED_EXT_WRAPPER:-0}"
+USE_SCHED_EXT_WRAPPER="${USE_SCHED_EXT_WRAPPER:-1}"
 ENABLE_EEVDF_LAGS="${ENABLE_EEVDF_LAGS:-0}"
 LAGS_EMA_WINDOW="${LAGS_EMA_WINDOW:-1000}"
 LAGS_CGROUP_ROOT="${LAGS_CGROUP_ROOT:-}"
@@ -113,11 +113,11 @@ sample_dir_for_density() {
 }
 
 RUN_TAG=""
-cleanup_units() {
+kill_units() {
   sudo pkill -f rd-hashd >/dev/null 2>&1 || true
 }
 
-cleanup_faas_slices() {
+cleanup_units() {
   sudo systemctl stop 'hashd-*' >/dev/null 2>&1 || true
   sudo systemctl stop 'faas-*.slice' >/dev/null 2>&1 || true
   sudo systemctl reset-failed 'hashd-*' >/dev/null 2>&1 || true
@@ -325,6 +325,7 @@ reset_eevdf_lags_cgroups() {
 }
 
 cleanup_all() {
+  kill_units
   cleanup_units
   cleanup_tracing
   set_eevdf_lags_sysctls 0
@@ -529,7 +530,7 @@ PARAMS
   record_sched_ext_state "$OUT_DIR/sched_ext_state.txt" "run_start"
 
   log "initial cleanup of stale units/slices"
-  cleanup_faas_slices
+  cleanup_units
   log "resetting EEVDF-LAGS cgroup flags"
   reset_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT"
 
@@ -566,7 +567,7 @@ PARAMS
       log "d${density}: trace sample dir $sample_dir"
     fi
     log "d${density}: cleaning stale units/slices"
-    cleanup_faas_slices
+    cleanup_units
 
     printf "instance,unit,slice,trace\n" > "$DDIR/cgroup_layout.csv"
     record_thermal "$DDIR/thermal.txt" "before_start"
@@ -653,9 +654,12 @@ TRACE_LAUNCH_SCALE=$TRACE_LAUNCH_SCALE
 TRACE_INSTANCE_COUNT=$N
 TRACE_WINDOW
 
-    log "d${density}: cleanup"
+    log "d${density}: killing rd-hashd processes"
+    kill_units
+    log "d${density}: killed rd-hashd processes"
+    log "d${density}: cleaning systemd units/slices"
     cleanup_units
-    log "d${density}: cleanup successful"
+    log "d${density}: cleaned systemd units/slices"
     RUN_TAG=""
 
     # TODO: Probably remove this
