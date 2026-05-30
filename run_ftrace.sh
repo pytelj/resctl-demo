@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DENSITIES="${DENSITIES:-1 5 10 20}"
+DENSITIES="${DENSITIES:-1 5 10 15 20}"
 REPEATS="${REPEATS:-1}"
 WARMUP_SEC="${WARMUP_SEC:-10}"
 TRACE_SEC="${TRACE_SEC:-30}"
@@ -17,6 +17,9 @@ ENABLE_EEVDF_LAGS="${ENABLE_EEVDF_LAGS:-0}"
 LAGS_EMA_WINDOW="${LAGS_EMA_WINDOW:-1000}"
 LAGS_CGROUP_ROOT="${LAGS_CGROUP_ROOT:-}"
 ENABLE_RDH_REPORTS="${ENABLE_RDH_REPORTS:-0}"
+WORKLOAD_MODE="${WORKLOAD_MODE:-trace}"  # controlled | trace
+TRACE_SAMPLE_ROOT="${TRACE_SAMPLE_ROOT:-/home/janp/mphil/sched-ext/azure_traces/sampled_30s/rpi4}"
+TRACE_LAUNCH_SCALE="${TRACE_LAUNCH_SCALE:-20}"
 
 REPO_ROOT="${REPO_ROOT:-$PWD}"
 RDH_BIN="${RDH_BIN:-$REPO_ROOT/target/release/rd-hashd}"
@@ -102,6 +105,11 @@ cgroup_slice_for_instance() {
       exit 1
       ;;
   esac
+}
+
+sample_dir_for_density() {
+  local density="$1"
+  printf "%s/d%02d" "$TRACE_SAMPLE_ROOT" "$density"
 }
 
 RUN_TAG=""
@@ -456,9 +464,15 @@ main() {
   [[ "$USE_SCHED_EXT_WRAPPER" == "0" || "$USE_SCHED_EXT_WRAPPER" == "1" ]] || { echo "ERROR: USE_SCHED_EXT_WRAPPER must be 0 or 1" >&2; exit 1; }
   [[ "$ENABLE_EEVDF_LAGS" == "0" || "$ENABLE_EEVDF_LAGS" == "1" ]] || { echo "ERROR: ENABLE_EEVDF_LAGS must be 0 or 1" >&2; exit 1; }
   [[ "$ENABLE_RDH_REPORTS" == "0" || "$ENABLE_RDH_REPORTS" == "1" ]] || { echo "ERROR: ENABLE_RDH_REPORTS must be 0 or 1" >&2; exit 1; }
+  [[ "$WORKLOAD_MODE" == "controlled" || "$WORKLOAD_MODE" == "trace" ]] || { echo "ERROR: WORKLOAD_MODE must be controlled or trace" >&2; exit 1; }
+  [[ "$TRACE_LAUNCH_SCALE" =~ ^[0-9]+$ && "$TRACE_LAUNCH_SCALE" -gt 0 ]] || { echo "ERROR: TRACE_LAUNCH_SCALE must be a positive integer" >&2; exit 1; }
   [[ "$LAGS_EMA_WINDOW" =~ ^[0-9]+$ ]] || { echo "ERROR: LAGS_EMA_WINDOW must be a non-negative integer" >&2; exit 1; }
   if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
     [[ -x "$SCHED_EXT_EXEC" ]] || { echo "ERROR: sched_ext wrapper not executable at $SCHED_EXT_EXEC" >&2; exit 1; }
+  fi
+  if [[ "$WORKLOAD_MODE" == "trace" ]]; then
+    require_cmd find
+    [[ -d "$TRACE_SAMPLE_ROOT" ]] || { echo "ERROR: TRACE_SAMPLE_ROOT missing at $TRACE_SAMPLE_ROOT" >&2; exit 1; }
   fi
 
   local H SLICE_BASE
@@ -480,6 +494,10 @@ main() {
   log "cgroup layout: $CGROUP_LAYOUT (root=$SLICE)"
   log "sched_ext wrapper: $USE_SCHED_EXT_WRAPPER"
   log "EEVDF-LAGS: $ENABLE_EEVDF_LAGS (ema_window=$LAGS_EMA_WINDOW, root=$LAGS_CGROUP_ROOT)"
+  log "workload mode: $WORKLOAD_MODE"
+  if [[ "$WORKLOAD_MODE" == "trace" ]]; then
+    log "trace samples: $TRACE_SAMPLE_ROOT (launch_scale=$TRACE_LAUNCH_SCALE)"
+  fi
   log "rd-hashd reports: $ENABLE_RDH_REPORTS"
   log "sudo keepalive: $ENABLE_SUDO_KEEPALIVE"
   log "warmup=${WARMUP_SEC}s trace=${TRACE_SEC}s cooldown=${COOLDOWN_SEC}s"
@@ -501,6 +519,9 @@ RDH_BIN=$RDH_BIN
 PARAMS_JSON=$PARAMS_JSON
 ENABLE_RDH_REPORTS=$ENABLE_RDH_REPORTS
 ENABLE_SUDO_KEEPALIVE=$ENABLE_SUDO_KEEPALIVE
+WORKLOAD_MODE=$WORKLOAD_MODE
+TRACE_SAMPLE_ROOT=$TRACE_SAMPLE_ROOT
+TRACE_LAUNCH_SCALE=$TRACE_LAUNCH_SCALE
 USE_SCHED_EXT_WRAPPER=$USE_SCHED_EXT_WRAPPER
 SCHED_EXT_EXEC=$SCHED_EXT_EXEC
 ENABLE_EEVDF_LAGS=$ENABLE_EEVDF_LAGS
@@ -530,32 +551,58 @@ PARAMS
 
   local density
   for density in $DENSITIES; do
-    local N DDIR
-    N=$((density * H))
+    local N DDIR sample_dir
+    local -a trace_files=()
+
+    if [[ "$WORKLOAD_MODE" == "trace" ]]; then
+      sample_dir="$(sample_dir_for_density "$density")"
+      [[ -d "$sample_dir" ]] || { echo "ERROR: missing trace sample dir $sample_dir" >&2; exit 1; }
+      mapfile -t trace_files < <(find "$sample_dir" -maxdepth 1 -type f -name 'trace-*.csv' | sort)
+      N="${#trace_files[@]}"
+      [[ "$N" -gt 0 ]] || { echo "ERROR: no trace-*.csv files found in $sample_dir" >&2; exit 1; }
+    else
+      N=$((density * H))
+    fi
+
     DDIR="$OUT_DIR/d${density}"
     mkdir -p "$DDIR/latencies"
     if [[ "$ENABLE_RDH_REPORTS" == "1" ]]; then
       mkdir -p "$DDIR/reports"
     fi
+    if [[ "$WORKLOAD_MODE" == "trace" ]]; then
+      mkdir -p "$DDIR/trace_inputs"
+      [[ -f "$sample_dir/manifest.csv" ]] && cp "$sample_dir/manifest.csv" "$DDIR/trace_inputs/"
+      [[ -f "$sample_dir/summary.txt" ]] && cp "$sample_dir/summary.txt" "$DDIR/trace_inputs/"
+    fi
 
     RUN_TAG="${RUN_ID_SAFE}-d${density}"
 
     log "d${density}: starting (${N} instances)"
+    if [[ "$WORKLOAD_MODE" == "trace" ]]; then
+      log "d${density}: trace sample dir $sample_dir"
+    fi
     log "d${density}: cleaning stale units/slices"
     cleanup_faas_slices
 
-    printf "instance,unit,slice\n" > "$DDIR/cgroup_layout.csv"
+    printf "instance,unit,slice,trace\n" > "$DDIR/cgroup_layout.csv"
     record_thermal "$DDIR/thermal.txt" "before_start"
 
-    local i unit rpt logdir unit_slice
+    local i unit rpt logdir unit_slice trace_src trace_name
     log "d${density}: launching instances"
     for i in $(seq 0 $((N - 1))); do
       unit=$(printf "hashd-%s-%03d" "$RUN_TAG" "$i")
       rpt=$(printf "%s/reports/report-%03d.json" "$DDIR" "$i")
       logdir=$(printf "%s/latencies/logs-%03d" "$DDIR" "$i")
       unit_slice="$(cgroup_slice_for_instance "$i" "$SLICE_BASE")"
+      trace_src=""
+      trace_name=""
+      if [[ "$WORKLOAD_MODE" == "trace" ]]; then
+        trace_src="${trace_files[$i]}"
+        trace_name="$(basename "$trace_src")"
+        cp "$trace_src" "$DDIR/trace_inputs/$trace_name"
+      fi
       mkdir -p "$logdir"
-      printf "%d,%s,%s\n" "$i" "$unit" "$unit_slice" >> "$DDIR/cgroup_layout.csv"
+      printf "%d,%s,%s,%s\n" "$i" "$unit" "$unit_slice" "$trace_name" >> "$DDIR/cgroup_layout.csv"
 
       local -a cmd=()
       if [[ "$USE_SCHED_EXT_WRAPPER" == "1" ]]; then
@@ -563,6 +610,9 @@ PARAMS
       fi
       cmd+=("$RDH_BIN")
       cmd+=(--params "$PARAMS_JSON" --log-dir "$logdir" --interval 1)
+      if [[ "$WORKLOAD_MODE" == "trace" ]]; then
+        cmd+=(--trace-path "$trace_src" --trace-launch-scale "$TRACE_LAUNCH_SCALE")
+      fi
       if [[ "$ENABLE_RDH_REPORTS" == "1" ]]; then
         cmd+=(--report "$rpt")
       fi
@@ -611,6 +661,10 @@ TRACE_END_EPOCH=$trace_end_epoch
 TRACE_ACTUAL_SEC=$trace_actual_sec
 TRACE_START_UTC=$trace_start_utc
 TRACE_END_UTC=$trace_end_utc
+WORKLOAD_MODE=$WORKLOAD_MODE
+TRACE_SAMPLE_DIR=${sample_dir:-}
+TRACE_LAUNCH_SCALE=$TRACE_LAUNCH_SCALE
+TRACE_INSTANCE_COUNT=$N
 TRACE_WINDOW
 
     if [[ "$ENABLE_EEVDF_LAGS" == "1" ]]; then
