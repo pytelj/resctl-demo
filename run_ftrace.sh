@@ -8,6 +8,7 @@ TRACE_SEC="${TRACE_SEC:-30}"
 COOLDOWN_SEC="${COOLDOWN_SEC:-10}"
 REPEAT_SLEEP_SEC="${REPEAT_SLEEP_SEC:-300}"
 ENABLE_SUDO_KEEPALIVE="${ENABLE_SUDO_KEEPALIVE:-1}"
+DISABLE_AVAHI="${DISABLE_AVAHI:-1}"
 SLICE="${SLICE:-faas.slice}"
 CGROUP_LAYOUT="${CGROUP_LAYOUT:-tenant_app_func}"  # flat | func | app_func | tenant_app_func
 FUNCS_PER_APP="${FUNCS_PER_APP:-4}"
@@ -123,6 +124,25 @@ cleanup_units() {
   sudo systemctl stop 'hashd-*' >/dev/null 2>&1 || true
   sudo systemctl stop 'faas-*.slice' >/dev/null 2>&1 || true
   sudo systemctl reset-failed 'hashd-*' >/dev/null 2>&1 || true
+}
+
+disable_avahi() {
+  [[ "$DISABLE_AVAHI" == "1" ]] || return 0
+  log "disabling avahi-daemon"
+  sudo systemctl disable --now avahi-daemon.socket avahi-daemon >/dev/null 2>&1 || true
+}
+
+record_avahi_state() {
+  local out="$1"
+  local label="$2"
+
+  {
+    echo "==== $label ===="
+    echo "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    systemctl is-active avahi-daemon.socket avahi-daemon 2>/dev/null || true
+    systemctl is-enabled avahi-daemon.socket avahi-daemon 2>/dev/null || true
+    echo
+  } >> "$out"
 }
 
 record_thermal() {
@@ -416,6 +436,7 @@ main() {
   [[ "$REPEATS" =~ ^[0-9]+$ && "$REPEATS" -gt 0 ]] || { echo "ERROR: REPEATS must be a positive integer" >&2; exit 1; }
   [[ "$REPEAT_SLEEP_SEC" =~ ^[0-9]+$ ]] || { echo "ERROR: REPEAT_SLEEP_SEC must be a non-negative integer" >&2; exit 1; }
   [[ "$ENABLE_SUDO_KEEPALIVE" == "0" || "$ENABLE_SUDO_KEEPALIVE" == "1" ]] || { echo "ERROR: ENABLE_SUDO_KEEPALIVE must be 0 or 1" >&2; exit 1; }
+  [[ "$DISABLE_AVAHI" == "0" || "$DISABLE_AVAHI" == "1" ]] || { echo "ERROR: DISABLE_AVAHI must be 0 or 1" >&2; exit 1; }
 
   if [[ "$REPEATS" -gt 1 ]]; then
     local requested_repeats="$REPEATS"
@@ -495,6 +516,7 @@ main() {
   fi
   log "rd-hashd reports: $ENABLE_RDH_REPORTS"
   log "sudo keepalive: $ENABLE_SUDO_KEEPALIVE"
+  log "disable avahi: $DISABLE_AVAHI"
   log "warmup=${WARMUP_SEC}s trace=${TRACE_SEC}s cooldown=${COOLDOWN_SEC}s"
   echo
 
@@ -514,6 +536,7 @@ RDH_BIN=$RDH_BIN
 PARAMS_JSON=$PARAMS_JSON
 ENABLE_RDH_REPORTS=$ENABLE_RDH_REPORTS
 ENABLE_SUDO_KEEPALIVE=$ENABLE_SUDO_KEEPALIVE
+DISABLE_AVAHI=$DISABLE_AVAHI
 WORKLOAD_MODE=$WORKLOAD_MODE
 TRACE_SAMPLE_ROOT=$TRACE_SAMPLE_ROOT
 TRACE_LAUNCH_SCALE=$TRACE_LAUNCH_SCALE
@@ -540,6 +563,9 @@ PARAMS
   record_eevdf_lags_sysctls "$OUT_DIR/params.txt"
   record_cpu_freq "$OUT_DIR/cpu_freq.txt" "run_start"
   record_sched_ext_state "$OUT_DIR/sched_ext_state.txt" "run_start"
+  record_avahi_state "$OUT_DIR/avahi_state.txt" "before_disable"
+  disable_avahi
+  record_avahi_state "$OUT_DIR/avahi_state.txt" "after_disable"
 
   log "initial cleanup of stale units/slices"
   cleanup_units
