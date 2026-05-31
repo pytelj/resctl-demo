@@ -704,6 +704,7 @@ PARAMS
     stop_ftrace_dump "$DDIR" "$H"
     log "d${density}: ftrace stopped + dumped"
     trace_actual_sec="$(awk -v s="$trace_start_epoch" -v e="$trace_end_epoch" 'BEGIN{printf "%.6f", e-s}')"
+    record_sched_ext_state "$DDIR/sched_ext_state.txt" "after_stopping_ftrace"
 
     cat > "$DDIR/trace_window.txt" <<TRACE_WINDOW
 TRACE_CONFIG_SEC=$TRACE_SEC
