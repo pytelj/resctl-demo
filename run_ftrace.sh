@@ -13,13 +13,12 @@ SLICE="${SLICE:-faas.slice}"
 CGROUP_LAYOUT="${CGROUP_LAYOUT:-tenant_app_func}"  # flat | func | app_func | tenant_app_func
 FUNCS_PER_APP="${FUNCS_PER_APP:-4}"
 APPS_PER_TENANT="${APPS_PER_TENANT:-4}"
-USE_SCHED_EXT_WRAPPER="${USE_SCHED_EXT_WRAPPER:-1}"
+USE_SCHED_EXT_WRAPPER="${USE_SCHED_EXT_WRAPPER:-0}"
 ENABLE_EEVDF_LAGS="${ENABLE_EEVDF_LAGS:-0}"
 LAGS_EMA_WINDOW="${LAGS_EMA_WINDOW:-1000}"
 LAGS_CGROUP_ROOT="${LAGS_CGROUP_ROOT:-}"
 ENABLE_RDH_REPORTS="${ENABLE_RDH_REPORTS:-0}"
-WORKLOAD_MODE="${WORKLOAD_MODE:-trace}"  # controlled | trace
-TRACE_SAMPLE_ROOT="${TRACE_SAMPLE_ROOT:-/home/janp/mphil/sched-ext/azure_traces/sampled_30s/rpi4_cumulative}"
+WORKLOAD_MODE="${WORKLOAD_MODE:-controlled}"  # controlled | trace
 TRACE_LAUNCH_SCALE="${TRACE_LAUNCH_SCALE:-12}"
 TRACE_START_AT_FIXED_BUDGET="${TRACE_START_AT_FIXED_BUDGET:-10}"
 TRACE_START_AT_BUDGET_PER_INSTANCE="${TRACE_START_AT_BUDGET_PER_INSTANCE:-0.25}"
@@ -28,6 +27,7 @@ REPO_ROOT="${REPO_ROOT:-$PWD}"
 RDH_BIN="${RDH_BIN:-$REPO_ROOT/target/release/rd-hashd}"
 PARAMS_JSON="${PARAMS_JSON:-$REPO_ROOT/rdh/params.json}"
 SCHED_EXT_EXEC="${SCHED_EXT_EXEC:-$REPO_ROOT/sched_ext_exec}"
+TRACE_SAMPLE_ROOT="${TRACE_SAMPLE_ROOT:-$REPO_ROOT/../sched-ext/azure_traces/sampled_30s/rpi4_cumulative}"
 
 LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/../sched-ext/logs/ftrace_resctl}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
@@ -731,7 +731,6 @@ TRACE_WINDOW
     log "d${density}: cleaned systemd units/slices"
     RUN_TAG=""
 
-    # TODO: Probably remove this
     if [[ "$ENABLE_EEVDF_LAGS" == "1" ]]; then
       mark_eevdf_lags_cgroups "$LAGS_CGROUP_ROOT" "$DDIR/lags_cgroups_after_cleanup.txt"
     fi
