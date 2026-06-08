@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCX_NAME="${SCX_NAME:-scx}"
+# SCX_NAME="${SCX_NAME:-scx_flatcg}"
+SCX_NAME="${SCX_NAME:-scx_flatcg_lags}"
 
 sudo -v
 while true; do
